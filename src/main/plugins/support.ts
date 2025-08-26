@@ -8,7 +8,7 @@ declare module 'fastify' {
 }
 
 const supportPlugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  fastify.decorate('someSupport', function (this: FastifyInstance) {
+  fastify.decorate('someSupport', function () {
     return 'hugs';
   });
 };

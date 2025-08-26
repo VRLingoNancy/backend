@@ -1,11 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 const indexRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/', async (_request, _reply) => {
+  fastify.get('/', async () => {
     return { message: 'Welcome to the API!' };
   });
 
-  fastify.get('/ping', async (_request, _reply) => {
+  fastify.get('/ping', async () => {
     return 'pong\n';
   });
 };
