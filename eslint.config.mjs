@@ -8,7 +8,7 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default [
   eslint.configs.recommended,
-  eslintConfigPrettier, // Désactive les règles conflictuelles avec Prettier
+  eslintConfigPrettier,
   {
     files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
@@ -43,5 +43,8 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error', 'info'] }],
       indent: ['error', 2],
     },
+  },
+  {
+    ignores: ['src/test/**'],
   },
 ];
