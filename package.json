@@ -14,7 +14,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main/server.js",
     "test": "node --test test/**/*.test.js",
-    "dev": "nodemon"
+    "dev": "nodemon",
+    "lint": "eslint 'src/**/*.{js,ts}'"
   },
   "keywords": [],
   "author": "",
@@ -30,7 +31,14 @@
   "devDependencies": {
     "@tsconfig/node22": "^22.0.2",
     "@types/node": "^24.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.41.0",
+    "@typescript-eslint/parser": "^8.41.0",
+    "eslint": "^9.34.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^16.3.0",
     "nodemon": "^3.1.10",
+    "prettier": "^3.6.2",
     "tsx": "^4.20.4",
     "typescript": "^5.9.2"
   }
