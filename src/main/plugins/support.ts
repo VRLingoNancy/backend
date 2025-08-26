@@ -1,16 +1,16 @@
-import fp from 'fastify-plugin';
-import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import fp from "fastify-plugin";
+import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 
-declare module 'fastify' {
+declare module "fastify" {
   interface FastifyInstance {
     someSupport(): string;
   }
 }
 
 const supportPlugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  fastify.decorate('someSupport', function (this: FastifyInstance) {
-    return 'hugs';
+  fastify.decorate("someSupport", function (this: FastifyInstance) {
+    return "hugs";
   });
 };
 
-export default fp(supportPlugin, { name: 'support' });
+export default fp(supportPlugin, { name: "support" });
