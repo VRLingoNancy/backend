@@ -9,7 +9,7 @@ const port = Number(process.env.PORT ?? 3000);
 
 try {
   await server.listen({ port, host: '0.0.0.0' });
-  console.log(`Server is running at http://localhost:${port}`);
+  console.info(`Server is running at http://localhost:${port}`);
 } catch (err) {
   console.error('Error starting server:', err);
   process.exit(1);
