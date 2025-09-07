@@ -3,7 +3,6 @@
 
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,8 +12,108 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model TestItem {
-  id        Int      @id @default(autoincrement())
-  name      String
-  createdAt DateTime @default(now())
+enum Role {
+  user
+  admin
+  moderator
+  tester
+}
+
+enum CEFRLevel {
+  A1
+  A1Plus
+  A2
+  A2Plus
+  B1
+  B1Plus
+  B2
+  B2Plus
+  C1
+  C2
+}
+
+model User {
+  id            String           @id @default(uuid())
+  email         String           @unique
+  passwordHash  String
+  username      String?          @unique
+  role          Role             @default(user)     
+  isVerified    Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  lastLogin     DateTime?
+  deletedAt     DateTime?
+
+  settings      UserSettings?
+  languages     UserLanguage[]
+  IAUsageLog IAUsageLog[]
+
+  @@map("users")
+  AuthToken AuthToken[]
+  IACredit IACredit[]
+}
+
+
+model UserSettings {
+  userId                String   @id
+  nativeLanguageCode    String
+  interfaceLanguageCode String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model UserLanguage {
+  userId       String
+  languageCode String
+  initialLevel CEFRLevel
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, languageCode])
+  @@map("user_languages")
+}
+
+model AuthToken {
+  id               String   @id @default(uuid())
+  userId           String
+  refreshToken     String   @unique
+  refreshExpiresAt DateTime
+  revoked          Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  userAgent        String?
+  ipAddress        String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auth_tokens")
+}
+
+model IACredit {
+  userId           String   @id
+  creditsAvailable Int      @default(0)
+  creditsUsed      Int      @default(0)
+  lastReset        DateTime?
+  limitStrategy    String   @default("manual") // ex : "manual", "monthly", "subscription"
+  pendingRecharge  Boolean  @default(false)
+  lastUsageAt      DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ia_credits")
+}
+
+model IAUsageLog {
+  id            String   @id @default(uuid())
+  userId        String
+  timestamp     DateTime @default(now())
+  tokenCost     Int
+  model         String
+  inputLength   Int?
+  outputLength  Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ia_usage_logs")
 }
