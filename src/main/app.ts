@@ -16,7 +16,7 @@ const app: FastifyPluginAsync = async (fastify, opts) => {
       options: { ...opts },
     });
   } catch (err) {
-    console.log('Impossible de charger les plugins:', err);
+    console.error('Impossible de charger les plugins:', err);
   }
 
   // Routes
@@ -26,7 +26,7 @@ const app: FastifyPluginAsync = async (fastify, opts) => {
       options: { ...opts },
     });
   } catch (err) {
-    console.log('Impossible de charger les routes:', err);
+    console.error('Impossible de charger les routes:', err);
   }
 };
 
