@@ -22,3 +22,9 @@ Run the test cases.
 ## Learn More
 
 To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs/latest/).
+
+##
+
+Pour utiliser signer et valider les JWT il faut générer des clés dans /config/jwt.
+La clé privé peut-être générée avec la commande : openssl genrsa -out private.pem 2048
+La clé publique peut-être générée avec la commande : openssl rsa -in private.pem -outform PEM -pubout -out public.pem

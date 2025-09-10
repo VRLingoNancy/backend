@@ -1,13 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
+import pingRoutes from './ping';
+import testRoutes from './test';
 
-const indexRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/', async () => {
-    return { message: 'Welcome to the API!' };
-  });
-
-  fastify.get('/ping', async () => {
-    return 'pong\n';
-  });
+const apiRoutes: FastifyPluginAsync = async (fastify) => {
+  await fastify.register(pingRoutes);
+  await fastify.register(testRoutes);
 };
 
-export default indexRoute;
+export default apiRoutes;
