@@ -6,6 +6,40 @@ export class AuthService {
   // eslint-disable-next-line no-unused-vars
   constructor(private prisma: PrismaClient) {}
 
+  async verifyAndRefreshToken(refreshToken: string, fastify: any): Promise<User> {
+    
+    const tokenRecord = await this.prisma.authToken.findUnique({
+      where: { refreshToken },
+      include: { user: true },
+    });
+
+    if (!tokenRecord) {
+      throw new AuthServiceError('Refresh token invalide', 401);
+    }
+    if (tokenRecord.revoked) {
+      throw new AuthServiceError('Refresh token revoqué', 401);
+    }
+    if (tokenRecord.refreshExpiresAt < new Date()) {
+      await this.prisma.authToken.update({
+        where: { id: tokenRecord.id },
+        data: { revoked: true },
+      });
+      throw new AuthServiceError('Refresh token expiré', 401);
+    }
+
+    try {
+      await fastify.jwt.verify(refreshToken);
+    } catch (err) {
+      await this.prisma.authToken.update({
+        where: { id: tokenRecord.id },
+        data: { revoked: true },
+      });
+      throw new AuthServiceError('Refresh token malformé ou invalide', 401);
+    }
+
+    return tokenRecord.user;
+  }
+
   async registerUser(
     email: string,
     password: string,
