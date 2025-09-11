@@ -1,13 +1,16 @@
 import { PrismaClient, User } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { AuthServiceError } from '../errors/AuthServiceError';
+import type { FastifyInstance } from 'fastify';
 
 export class AuthService {
   // eslint-disable-next-line no-unused-vars
   constructor(private prisma: PrismaClient) {}
 
-  async verifyAndRefreshToken(refreshToken: string, fastify: any): Promise<User> {
-    
+  async verifyAndRefreshToken(
+    refreshToken: string,
+    fastify: FastifyInstance
+  ): Promise<User> {
     const tokenRecord = await this.prisma.authToken.findUnique({
       where: { refreshToken },
       include: { user: true },
@@ -34,6 +37,7 @@ export class AuthService {
         where: { id: tokenRecord.id },
         data: { revoked: true },
       });
+      console.error('Erreur de verification du refresh token JWT', err);
       throw new AuthServiceError('Refresh token malformé ou invalide', 401);
     }
 
