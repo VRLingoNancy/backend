@@ -2,14 +2,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AutoLoad from '@fastify/autoload';
 import type { FastifyPluginAsync } from 'fastify';
-import authGuard from './plugins/authGuard';
 
 export const options = {};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app: FastifyPluginAsync = async (fastify, opts) => {
-
   try {
     await fastify.register(AutoLoad, {
       dir: path.join(__dirname, 'plugins'),

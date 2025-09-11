@@ -3,16 +3,25 @@ import bcrypt from 'bcrypt';
 import { AuthServiceError } from '../errors/AuthServiceError';
 
 export class AuthService {
+  // eslint-disable-next-line no-unused-vars
   constructor(private prisma: PrismaClient) {}
 
-  async registerUser(email: string, password: string, username?: string): Promise<User> {
-    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+  async registerUser(
+    email: string,
+    password: string,
+    username?: string
+  ): Promise<User> {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
     if (existingUser) {
       throw new AuthServiceError('User already exists', 409);
     }
 
     if (username) {
-      const existingUsername = await this.prisma.user.findUnique({ where: { username } });
+      const existingUsername = await this.prisma.user.findUnique({
+        where: { username },
+      });
       if (existingUsername) {
         throw new AuthServiceError('Username already taken', 409);
       }
@@ -30,6 +39,7 @@ export class AuthService {
       });
       return user;
     } catch (err) {
+      console.error("Erreur dans la creation prisma d'un utilisateur", err);
       throw new AuthServiceError('Failed to create user', 500);
     }
   }
