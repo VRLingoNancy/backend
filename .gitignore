@@ -62,3 +62,5 @@ profile*
 .env
 
 /src/generated/prisma
+
+/config/jwt
