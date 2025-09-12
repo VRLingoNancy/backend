@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main/server.js",
-    "test": "node --test test/**/*.test.js",
+    "test": "NODE_ENV=test tsx --test src/test/**/*.test.ts",
     "dev": "nodemon",
     "lint": "eslint 'src/**/*.{js,ts}'"
   },
