@@ -2,10 +2,7 @@ module.exports = {
   extends: ['@commitlint/config-conventional'],
   rules: {
     // Project specific rules
-    'scope-enum': [2, 'always', [
-      'ci',
-      'auth'
-    ]],
+    'scope-enum': [2, 'always', ['ci', 'auth']],
 
     // Compliant with Angular conventions (get rid of "style" type but tolerate "chore" one)
     'type-enum': [

@@ -6,12 +6,12 @@ import { AuthGuardError } from '../errors/AuthGuardError';
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (
-      request: FastifyRequest,
-      reply: FastifyReply
+      _request: FastifyRequest,
+      _reply: FastifyReply
     ) => Promise<void>;
   }
 }
-/* eslint-disable no-unused-vars */
+/* eslint-enable no-unused-vars */
 
 export default fp(async (fastify) => {
   fastify.decorate(

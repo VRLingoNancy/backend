@@ -3,7 +3,9 @@ import pingRoutes from './ping';
 import testRoutes from './test';
 
 const apiRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.addHook('onRequest', fastify.authenticate);
+  if (process.env.NODE_ENV !== 'test') {
+    fastify.addHook('onRequest', fastify.authenticate);
+  }
 
   await fastify.register(pingRoutes);
   await fastify.register(testRoutes);

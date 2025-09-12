@@ -9,7 +9,10 @@ const refreshRoute: FastifyPluginAsync = async (fastify) => {
     const { refreshToken } = request.body as { refreshToken: string };
 
     try {
-      const user = await authService.verifyAndRefreshToken(refreshToken, fastify);
+      const user = await authService.verifyAndRefreshToken(
+        refreshToken,
+        fastify
+      );
 
       const accessToken = fastify.jwt.sign(
         { sub: user.id, role: user.role },
@@ -22,7 +25,9 @@ const refreshRoute: FastifyPluginAsync = async (fastify) => {
         return reply.code(err.statusCode).send({ error: err.message });
       } else {
         console.error('Erreur inconnue lors du rafraîchissement du token', err);
-        return reply.code(500).send({ error: 'Impossible de rafraîchir le token' });
+        return reply
+          .code(500)
+          .send({ error: 'Impossible de rafraîchir le token' });
       }
     }
   });
