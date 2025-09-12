@@ -15,7 +15,7 @@ export default fp(async (fastify) => {
     });
     return;
   }
-  
+
   fastify.register(import('@fastify/jwt'), {
     secret: {
       private: fs.readFileSync(
