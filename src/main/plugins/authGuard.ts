@@ -2,6 +2,17 @@ import fp from 'fastify-plugin';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthGuardError } from '../errors/AuthGuardError';
 
+/* eslint-disable no-unused-vars */
+declare module 'fastify' {
+  interface FastifyInstance {
+    authenticate: (
+      _request: FastifyRequest,
+      _reply: FastifyReply
+    ) => Promise<void>;
+  }
+}
+/* eslint-enable no-unused-vars */
+
 export default fp(async (fastify) => {
   fastify.decorate(
     'authenticate',
