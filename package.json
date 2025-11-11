@@ -16,7 +16,8 @@
     "test": "NODE_ENV=test tsx --test src/test/**/*.test.ts",
     "test:cov": "NODE_ENV=test c8 tsx --test src/test/**/*.test.ts",
     "dev": "nodemon",
-    "lint": "eslint 'src/**/*.{js,ts}'"
+    "lint": "eslint 'src/**/*.{js,ts}'",
+    "format": "prettier --write \"src/**/*.{ts,js,json,md}\""
   },
   "keywords": [],
   "author": "",
