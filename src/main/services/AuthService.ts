@@ -4,7 +4,6 @@ import { AuthServiceError } from '../errors/AuthServiceError';
 import type { FastifyInstance } from 'fastify';
 
 export class AuthService {
-  // eslint-disable-next-line no-unused-vars
   constructor(private prisma: PrismaClient) {}
 
   async verifyAndRefreshToken(

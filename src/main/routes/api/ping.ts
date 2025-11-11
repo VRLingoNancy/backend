@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 
-const pingRoutes: FastifyPluginAsync = async (fastify) => {
+const pingRoute: FastifyPluginAsync = async (fastify) => {
   fastify.get('/ping', async () => {
     return 'pong\n';
   });
 };
 
-export default pingRoutes;
+export default pingRoute;
