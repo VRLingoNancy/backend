@@ -32,6 +32,12 @@ enum CEFRLevel {
   C2
 }
 
+// NOUVEL ENUM : Pour identifier qui envoie le message
+enum Sender {
+  USER
+  AI
+}
+
 model User {
   id            String           @id @default(uuid())
   email         String           @unique
@@ -47,6 +53,7 @@ model User {
   settings      UserSettings?
   languages     UserLanguage[]
   IAUsageLog IAUsageLog[]
+  conversations Conversation[]
 
   @@map("users")
   AuthToken AuthToken[]
@@ -112,8 +119,38 @@ model IAUsageLog {
   model         String
   inputLength   Int?
   outputLength  Int?
+  message       Message?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ia_usage_logs")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String? // Titre de la conversation, ex: "Au restaurant"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[] // Une conversation a plusieurs messages
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  sender         Sender   // 'USER' ou 'AI'
+  content        String   @db.Text // Le contenu texte du message
+  createdAt      DateTime @default(now())
+
+  // Relation optionnelle vers le log d'usage (uniquement pour les messages de l'IA)
+  iaUsageLogId   String?  @unique
+  iaUsageLog     IAUsageLog? @relation(fields: [iaUsageLogId], references: [id])
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
 }
