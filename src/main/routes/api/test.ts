@@ -1,9 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
 
-const testRoutes: FastifyPluginAsync = async (fastify) => {
+const testRoute: FastifyPluginAsync = async (fastify) => {
   fastify.get('/', async () => {
     return { message: 'Welcome to the API!' };
   });
 };
 
-export default testRoutes;
+export default testRoute;

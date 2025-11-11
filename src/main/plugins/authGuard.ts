@@ -2,7 +2,6 @@ import fp from 'fastify-plugin';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthGuardError } from '../errors/AuthGuardError';
 
-/* eslint-disable no-unused-vars */
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (
@@ -11,31 +10,21 @@ declare module 'fastify' {
     ) => Promise<void>;
   }
 }
-/* eslint-enable no-unused-vars */
 
 export default fp(async (fastify) => {
   fastify.decorate(
     'authenticate',
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const authHeader = request.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-          throw new AuthGuardError('Header authorization manquant', 401);
-        }
-        const token = authHeader.slice(7);
-        await fastify.jwt.verify(token);
-      } catch (err: unknown) {
-        if (err instanceof AuthGuardError) {
-          reply.code(err.statusCode).send({ error: err.message });
-        } else if (err instanceof Error) {
-          reply
-            .code(401)
-            .send({ error: 'Token invalide ou expiré', details: err.message });
-        } else {
-          reply.code(401).send({ error: 'Token invalide ou expiré' });
-        }
+        // La fonction jwtVerify fait :
+        // 1. Trouve le token dans le header
+        // 2. Le vérifie
+        // 3. Attache le payload à request.user
+        // 4. Envoie une erreur 401 si ça échoue
+        await request.jwtVerify();
+      } catch (err) {
         throw err;
       }
-    }
+    },
   );
 });
