@@ -32,7 +32,6 @@ enum CEFRLevel {
   C2
 }
 
-// NOUVEL ENUM : Pour identifier qui envoie le message
 enum Sender {
   USER
   AI
@@ -115,10 +114,11 @@ model IAUsageLog {
   id            String   @id @default(uuid())
   userId        String
   timestamp     DateTime @default(now())
-  tokenCost     Int
+  tokenCost Decimal  @db.Decimal(10, 8)
   model         String
-  inputLength   Int?
-  outputLength  Int?
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
   message       Message?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,8 +1,16 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import app from './app';
+import {
+  serializerCompiler,
+  validatorCompiler,
+} from 'fastify-type-provider-zod';
 
 const server = Fastify({ logger: true });
+
+server.setValidatorCompiler(validatorCompiler);
+server.setSerializerCompiler(serializerCompiler);
+
 await server.register(app);
 
 const port = Number(process.env.PORT ?? 3000);

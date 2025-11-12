@@ -1,10 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import listConversationsRoute from './list';
+import createConversationRoute from './create';
 
 const conversationRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(listConversationsRoute);
-
-  // Enregistrera ici les autres routes...
+  await fastify.register(createConversationRoute);
 };
 
 export default conversationRoutes;
