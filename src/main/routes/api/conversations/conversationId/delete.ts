@@ -21,7 +21,9 @@ const deleteConversationRoute: FastifyPluginAsync = async (fastify) => {
       const parsed = paramsSchema.safeParse(request.params);
 
       if (!parsed.success) {
-        return reply.code(400).send({ error: 'Invalid params', details: parsed.error.format() });
+        return reply
+          .code(400)
+          .send({ error: 'Invalid params', details: parsed.error.format() });
       }
 
       const { conversationId } = parsed.data;
