@@ -123,4 +123,58 @@ export class ConversationService {
       );
     }
   }
+
+  /**
+   * Récupère une conversation par son ID, en s'assurant qu'elle appartient à l'utilisateur.
+   * Inclut tous les messages de la conversation, triés par date de création.
+   * @param conversationId L'ID de la conversation à récupérer.
+   * @param userId L'ID de l'utilisateur qui fait la demande.
+   */
+  async getById(conversationId: string, userId: string) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        userId: userId, // Condition de sécurité cruciale !
+      },
+      include: {
+        messages: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!conversation) {
+      throw new ConversationServiceError(
+        'Conversation not found or access denied',
+        404,
+      );
+    }
+
+    return conversation;
+  }
+
+  /**
+   * Supprime une conversation par son ID, en s'assurant qu'elle appartient à l'utilisateur.
+   * @param conversationId L'ID de la conversation à supprimer.
+   * @param userId L'ID de l'utilisateur qui fait la demande.
+   */
+  async deleteById(conversationId: string, userId: string) {
+    // On utilise deleteMany avec une clause `where` complexe pour une suppression atomique et sécurisée.
+    // Si la conversation n'existe pas ou n'appartient pas à l'utilisateur, `count` sera 0.
+    const { count } = await this.prisma.conversation.deleteMany({
+      where: {
+        id: conversationId,
+        userId: userId, // Condition de sécurité cruciale !
+      },
+    });
+
+    if (count === 0) {
+      throw new ConversationServiceError(
+        'Conversation not found or access denied',
+        404,
+      );
+    }
+  }
 }
