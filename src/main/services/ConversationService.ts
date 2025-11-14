@@ -148,7 +148,7 @@ export class ConversationService {
     if (!conversation) {
       throw new ConversationServiceError(
         'Conversation not found or access denied',
-        404,
+        404
       );
     }
 
@@ -173,7 +173,7 @@ export class ConversationService {
     if (count === 0) {
       throw new ConversationServiceError(
         'Conversation not found or access denied',
-        404,
+        404
       );
     }
   }

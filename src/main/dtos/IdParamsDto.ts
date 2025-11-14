@@ -6,4 +6,3 @@ import { z } from 'zod';
  */
 export const makeIdParamsDto = (paramName: string) =>
   z.object({ [paramName]: z.uuid({ message: `Wrong id format` }) });
-
