@@ -156,6 +156,109 @@ export class ConversationService {
   }
 
   /**
+   * Ajoute un message utilisateur à une conversation existante en s'assurant
+   * que la conversation appartient à l'utilisateur.
+   * @param conversationId L'ID de la conversation.
+   * @param userId L'ID de l'utilisateur qui envoie le message.
+   * @param content Le contenu du message utilisateur.
+   */
+  async addMessage(conversationId: string, userId: string, content: string) {
+    try {
+      // Simuler un appel à une API d'IA (même logique que startConversation)
+      const aiResponse = {
+        content: `This is a simulated AI response to: "${content}"`,
+        usage: {
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 30,
+        },
+        model: 'gpt-sim-1',
+      };
+
+      const simulatedTokenCost = (aiResponse.usage.totalTokens / 1000) * 0.002;
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const conv = await tx.conversation.findUnique({
+          where: { id: conversationId },
+          select: { id: true, userId: true },
+        });
+
+        if (!conv || conv.userId !== userId) {
+          throw new ConversationServiceError(
+            'Conversation not found or access denied',
+            404
+          );
+        }
+
+        const userMessage = await tx.message.create({
+          data: {
+            conversationId: conversationId,
+            sender: 'USER',
+            content: content,
+          },
+          select: {
+            id: true,
+            conversationId: true,
+            sender: true,
+            content: true,
+            createdAt: true,
+          },
+        });
+
+        const iaUsageLog = await tx.iAUsageLog.create({
+          data: {
+            userId: userId,
+            model: aiResponse.model,
+            promptTokens: aiResponse.usage.promptTokens,
+            completionTokens: aiResponse.usage.completionTokens,
+            totalTokens: aiResponse.usage.totalTokens,
+            tokenCost: simulatedTokenCost.toString(),
+          },
+        });
+
+        // Enregistrer le message de l'IA et le lier au log d'usage. Sélectionner
+        // uniquement les champs nécessaires pour la réponse.
+        const aiMessage = await tx.message.create({
+          data: {
+            conversationId: conversationId,
+            sender: 'AI',
+            content: aiResponse.content,
+            iaUsageLogId: iaUsageLog.id,
+          },
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+          },
+        });
+
+        // Mettre à jour updatedAt de la conversation pour refléter l'activité
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+
+        return {
+          userMessage,
+          aiResponse: {
+            id: aiMessage.id,
+            content: aiMessage.content,
+            createdAt: aiMessage.createdAt,
+          },
+        };
+      });
+
+      return result;
+    } catch (err) {
+      if (err instanceof ConversationServiceError) throw err;
+      throw new ConversationServiceError(
+        'Failed to add message to conversation',
+        500
+      );
+    }
+  }
+
+  /**
    * Supprime une conversation par son ID, en s'assurant qu'elle appartient à l'utilisateur.
    * @param conversationId L'ID de la conversation à supprimer.
    * @param userId L'ID de l'utilisateur qui fait la demande.
