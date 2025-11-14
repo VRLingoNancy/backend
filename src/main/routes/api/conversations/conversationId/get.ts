@@ -21,12 +21,17 @@ const getConversationRoute: FastifyPluginAsync = async (fastify) => {
       }
 
       if (!parsed.success) {
-        return reply.code(400).send({ error: 'Invalid params', details: parsed.error.format() });
+        return reply
+          .code(400)
+          .send({ error: 'Invalid params', details: parsed.error.format() });
       }
 
       const { conversationId } = parsed.data;
 
-      const conversation = await conversationService.getById(conversationId, userId);
+      const conversation = await conversationService.getById(
+        conversationId,
+        userId
+      );
 
       return reply.code(200).send(conversation);
     } catch (err) {
