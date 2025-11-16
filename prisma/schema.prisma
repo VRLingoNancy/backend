@@ -62,8 +62,10 @@ model User {
 
 model UserSettings {
   userId                String   @id
-  nativeLanguageCode    String
-  interfaceLanguageCode String
+  nativeLanguageCode    String // Langue maternelle de l'utilisateur
+  interfaceLanguageCode String // Langue de l'interface utilisateur
+  preferredStudyLanguage String? // Langue d'étude préférée
+  defaultIaModel        String?
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -130,6 +132,7 @@ model Conversation {
   id        String   @id @default(uuid())
   userId    String
   title     String? // Titre de la conversation, ex: "Au restaurant"
+  languageCode  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
