@@ -35,10 +35,17 @@ const registerRoute: FastifyPluginAsync = async (fastify) => {
     '/register',
     { schema },
     async (request, reply) => {
-      const { email, password, username } = request.body;
+      const { email, password, username, nativeLanguage, studyLanguage } =
+        request.body;
 
       try {
-        const user = await authService.registerUser(email, password, username);
+        const user = await authService.registerUser(
+          email,
+          password,
+          nativeLanguage,
+          studyLanguage,
+          username
+        );
         reply.code(201).send({
           id: user.id,
           email: user.email,

@@ -34,10 +34,8 @@ const loginRoute: FastifyPluginAsync = async (fastify) => {
     '/login',
     { schema },
     async (request, reply) => {
-      const { email, username, password } = request.body;
-
       try {
-        const user = await authService.loginUser(email, username, password);
+        const user = await authService.loginUser(request.body);
 
         const accessToken = fastify.jwt.sign(
           { sub: user.id, role: user.role },
