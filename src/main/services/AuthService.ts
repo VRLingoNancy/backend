@@ -115,36 +115,5 @@ export class AuthService {
     return user;
   }
 
-  /**
-   * Récupère les paramètres d'un utilisateur.
-   * Si les paramètres n'existent pas, ils sont créés avec des valeurs par défaut.
-   * @param userId L'ID de l'utilisateur.
-   */
-  async getUserSettings(userId: string) {
-    const settings = await this.prisma.userSettings.findUnique({
-      where: { userId },
-    });
 
-    if (settings) {
-      return settings;
-    }
-
-    // Si aucun paramètre n'est trouvé, on en crée par défaut.
-    // Mettez ici les valeurs par défaut qui ont du sens pour votre application.
-    const defaultSettings = {
-      userId,
-      nativeLanguageCode: 'en',
-      interfaceLanguageCode: 'en',
-    };
-
-    try {
-      const newSettings = await this.prisma.userSettings.create({
-        data: defaultSettings,
-      });
-      return newSettings;
-    } catch (error) {
-      console.error('Failed to create default user settings:', error);
-      throw new AuthServiceError('Could not retrieve or create user settings.', 500);
-    }
-  }
 }

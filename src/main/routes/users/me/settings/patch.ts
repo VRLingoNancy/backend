@@ -2,16 +2,21 @@ import type { FastifyPluginAsync, FastifySchema } from 'fastify';
 import { z } from 'zod';
 import { UserService } from '../../../../services/UserService';
 import { UserServiceError } from '../../../../errors/UserServiceError';
+import {
+  UpdateUserSettingsRequestDto,
+  UpdateUserSettingsRequestDtoType,
+} from '../../../../dtos/UpdateUserSettingsRequestDto';
 
-const getSettingsRoute: FastifyPluginAsync = async (fastify) => {
+const patchSettingsRoute: FastifyPluginAsync = async (fastify) => {
   const userService = new UserService(fastify.prisma);
 
   const schema: FastifySchema = {
-    summary: "Get user's settings",
+    summary: "Update user's settings",
     description:
-      "Retrieves the settings for the authenticated user. If settings don't exist, they will be created with default values.",
+      'Updates one or more settings for the authenticated user. Only the provided fields will be updated.',
     tags: ['users', 'settings'],
     security: [{ bearerAuth: [] }],
+    body: UpdateUserSettingsRequestDto,
     response: {
       200: z.object({
         userId: z.string().uuid(),
@@ -26,7 +31,7 @@ const getSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
   };
 
-  fastify.get(
+  fastify.patch<{ Body: UpdateUserSettingsRequestDtoType }>(
     '/',
     {
       schema,
@@ -36,10 +41,24 @@ const getSettingsRoute: FastifyPluginAsync = async (fastify) => {
       try {
         // @ts-ignore - request.user is added by the auth decorator
         const userId = request.user.sub;
+        const dataToUpdate = request.body;
 
-        const settings = await userService.getUserSettings(userId);
+        if (Object.keys(dataToUpdate).length === 0) {
+          return reply.code(400).send({
+            error: 'Bad Request',
+            details: 'Body empty or haven\'t correct fields.',
+          });
+        }
 
-        return reply.code(200).send(settings);
+        // On s'assure d'abord que les settings existent (ce qui les crée si besoin)
+        await userService.getUserSettings(userId);
+
+        const updatedSettings = await userService.updateUserSettings(
+          userId,
+          dataToUpdate
+        );
+
+        return reply.code(200).send(updatedSettings);
       } catch (err) {
         if (err instanceof UserServiceError) {
           return reply.code(err.statusCode).send({ error: err.message });
@@ -50,4 +69,4 @@ const getSettingsRoute: FastifyPluginAsync = async (fastify) => {
   );
 };
 
-export default getSettingsRoute;
+export default patchSettingsRoute;
