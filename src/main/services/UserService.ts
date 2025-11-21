@@ -6,7 +6,6 @@ export class UserService {
 
   /**
    * Récupère les paramètres d'un utilisateur.
-   * Si les paramètres n'existent pas, ils sont créés avec des valeurs par défaut.
    * @param userId L'ID de l'utilisateur.
    */
   async getUserSettings(userId: string) {
@@ -14,28 +13,12 @@ export class UserService {
       where: { userId },
     });
 
-    if (settings) {
-      return settings;
+    if (!settings) {
+      // Les settings sont censés être créés à l'inscription. Ne pas les trouver est une erreur.
+      throw new UserServiceError('User settings not found.', 404);
     }
 
-    const defaultSettings = {
-      userId,
-      nativeLanguageCode: 'en',
-      interfaceLanguageCode: 'en',
-    };
-
-    try {
-      const newSettings = await this.prisma.userSettings.create({
-        data: defaultSettings,
-      });
-      return newSettings;
-    } catch (error) {
-      console.error('Failed to create default user settings:', error);
-      throw new UserServiceError(
-        'Could not retrieve or create user settings.',
-        500
-      );
-    }
+    return settings;
   }
 
   /**

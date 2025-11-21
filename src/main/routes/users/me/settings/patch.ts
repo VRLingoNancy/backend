@@ -50,7 +50,8 @@ const patchSettingsRoute: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        // On s'assure d'abord que les settings existent (ce qui les crée si besoin)
+        // On s'assure d'abord que les settings existent.
+        // Cette ligne lèvera une erreur 404 si ce n'est pas le cas, ce qui est le comportement attendu.
         await userService.getUserSettings(userId);
 
         const updatedSettings = await userService.updateUserSettings(
