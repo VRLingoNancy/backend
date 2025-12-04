@@ -51,5 +51,7 @@ export default fp(async (fastify) => {
     transformStaticCSP: (header) => header,
   });
 
-  fastify.log.info("Plugin Swagger enregistré. Documentation disponible sur /docs");
+  fastify.log.info(
+    'Plugin Swagger enregistré. Documentation disponible sur /docs'
+  );
 });

@@ -46,7 +46,7 @@ const patchSettingsRoute: FastifyPluginAsync = async (fastify) => {
         if (Object.keys(dataToUpdate).length === 0) {
           return reply.code(400).send({
             error: 'Bad Request',
-            details: 'Body empty or haven\'t correct fields.',
+            details: "Body empty or haven't correct fields.",
           });
         }
 

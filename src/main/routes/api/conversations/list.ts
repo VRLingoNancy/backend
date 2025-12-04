@@ -8,7 +8,8 @@ const listConversationsRoute: FastifyPluginAsync = async (fastify) => {
 
   const schema: FastifySchema = {
     summary: 'List user conversations',
-    description: 'Retrieves a list of conversations for the authenticated user.',
+    description:
+      'Retrieves a list of conversations for the authenticated user.',
     tags: ['conversations'],
     security: [{ bearerAuth: [] }],
     response: {
