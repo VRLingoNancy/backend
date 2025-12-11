@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import pingRoute from './ping';
 import testRoute from './test';
 import conversationRoutes from './conversations/index';
+import usersRoutes from '../users';
 
 const apiRoutes: FastifyPluginAsync = async (fastify) => {
   if (process.env.NODE_ENV !== 'test') {
@@ -11,6 +12,7 @@ const apiRoutes: FastifyPluginAsync = async (fastify) => {
   await fastify.register(pingRoute);
   await fastify.register(testRoute);
   await fastify.register(conversationRoutes, { prefix: '/conversations' });
+  await fastify.register(usersRoutes, { prefix: '/users' });
 };
 
 export default apiRoutes;
