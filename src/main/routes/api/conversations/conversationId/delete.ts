@@ -1,4 +1,5 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifySchema } from 'fastify';
+import { z } from 'zod';
 import { ConversationService } from '../../../../services/ConversationService';
 import { ConversationServiceError } from '../../../../errors/ConversationServiceError';
 import { makeIdParamsDto } from '../../../../dtos/IdParamsDto';
@@ -6,38 +7,46 @@ import { makeIdParamsDto } from '../../../../dtos/IdParamsDto';
 const deleteConversationRoute: FastifyPluginAsync = async (fastify) => {
   const conversationService = new ConversationService(fastify.prisma);
 
-  fastify.delete('/', async (request, reply) => {
-    try {
-      // @ts-ignore - request.user comes from fastify-jwt decorator
-      const userId = request.user?.sub;
+  const schema: FastifySchema = {
+    summary: 'Delete a conversation',
+    description: 'Deletes a specific conversation by its ID.',
+    tags: ['conversations'],
+    security: [{ bearerAuth: [] }],
+    params: makeIdParamsDto('conversationId'),
+    response: {
+      204: z.null(),
+      401: z.object({
+        error: z.string(),
+      }),
+      404: z.object({
+        error: z.string(),
+      }),
+    },
+  };
 
-      if (!userId) {
-        return reply
-          .code(401)
-          .send({ error: 'Unauthorized: User ID not found in token' });
+  fastify.delete(
+    '/',
+    {
+      schema,
+      preHandler: fastify.authenticate,
+    },
+    async (request, reply) => {
+      try {
+        // @ts-ignore - request.user comes from fastify-jwt decorator
+        const userId = request.user?.sub;
+        const { conversationId } = request.params as { conversationId: string };
+
+        await conversationService.deleteById(conversationId, userId);
+
+        return reply.code(204).send();
+      } catch (err) {
+        if (err instanceof ConversationServiceError) {
+          return reply.code(err.statusCode).send({ error: err.message });
+        }
+        throw err;
       }
-
-      const paramsSchema = makeIdParamsDto('conversationId');
-      const parsed = paramsSchema.safeParse(request.params);
-
-      if (!parsed.success) {
-        return reply
-          .code(400)
-          .send({ error: 'Invalid params', details: parsed.error.format() });
-      }
-
-      const { conversationId } = parsed.data;
-
-      await conversationService.deleteById(conversationId, userId);
-
-      return reply.code(204).send();
-    } catch (err) {
-      if (err instanceof ConversationServiceError) {
-        return reply.code(err.statusCode).send({ error: err.message });
-      }
-      throw err;
     }
-  });
+  );
 };
 
 export default deleteConversationRoute;

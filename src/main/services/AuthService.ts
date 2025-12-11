@@ -46,51 +46,61 @@ export class AuthService {
   async registerUser(
     email: string,
     password: string,
+    nativeLanguage: string,
+    studyLanguage: string,
     username?: string
   ): Promise<User> {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-    });
-    if (existingUser) {
-      throw new AuthServiceError('User already exists', 409);
-    }
-
-    if (username) {
-      const existingUsername = await this.prisma.user.findUnique({
-        where: { username },
+    return this.prisma.$transaction(async (tx) => {
+      const existingUser = await tx.user.findUnique({
+        where: { email },
       });
-      if (existingUsername) {
-        throw new AuthServiceError('Username already taken', 409);
+      if (existingUser) {
+        throw new AuthServiceError('User already exists', 409);
       }
-    }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+      if (username) {
+        const existingUsername = await tx.user.findUnique({
+          where: { username },
+        });
+        if (existingUsername) {
+          throw new AuthServiceError('Username already taken', 409);
+        }
+      }
 
-    try {
-      const user = await this.prisma.user.create({
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      const user = await tx.user.create({
         data: {
           email,
           passwordHash,
           ...(username ? { username } : {}),
+          settings: {
+            create: {
+              nativeLanguageCode: nativeLanguage,
+              interfaceLanguageCode: nativeLanguage,
+              preferredStudyLanguage: studyLanguage,
+            },
+          },
         },
       });
+
       return user;
-    } catch (err) {
-      console.error("Erreur dans la creation prisma d'un utilisateur", err);
-      throw new AuthServiceError('Failed to create user', 500);
-    }
+    });
   }
 
-  async loginUser(
-    email: string | undefined,
-    username: string | undefined,
-    password: string
-  ): Promise<User> {
-    const user = await this.prisma.user.findFirst({
-      where: {
-        ...(email ? { email } : {}),
-        ...(username ? { username } : {}),
-      },
+  async loginUser({
+    email,
+    password,
+  }: {
+    email: string;
+    password: string;
+  }): Promise<User> {
+    if (!password) {
+      throw new AuthServiceError('Password is required', 400);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
     });
 
     if (!user) {
