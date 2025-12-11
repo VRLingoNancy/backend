@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { UserServiceError } from '../errors/UserServiceError';
 
 export class UserService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   /**
    * Récupère les paramètres d'un utilisateur.
