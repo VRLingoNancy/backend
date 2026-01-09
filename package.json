@@ -16,6 +16,7 @@
     "test": "NODE_ENV=test tsx --test src/test/**/*.test.ts",
     "test:cov": "NODE_ENV=test c8 tsx --test src/test/**/*.test.ts",
     "dev": "nodemon",
+    "db:connect": "docker exec -it backend-postgres-1 psql -U vrlingo -d vrlingo_db",
     "lint": "eslint 'src/**/*.{js,ts}'",
     "format": "prettier --write \"src/**/*.{ts,js,json,md}\""
   },
@@ -28,6 +29,7 @@
     "@fastify/sensible": "^6.0.0",
     "@fastify/swagger": "^9.6.1",
     "@fastify/swagger-ui": "^5.2.3",
+    "@fastify/websocket": "^11.2.0",
     "@prisma/client": "^6.15.0",
     "bcrypt": "^6.0.0",
     "dotenv": "^17.2.1",
@@ -36,12 +38,14 @@
     "fastify-plugin": "^5.0.0",
     "fastify-type-provider-zod": "^6.1.0",
     "prisma": "^6.15.0",
+    "ws": "^8.19.0",
     "zod": "^4.1.5"
   },
   "devDependencies": {
     "@tsconfig/node22": "^22.0.2",
     "@types/bcrypt": "^6.0.0",
     "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.41.0",
     "@typescript-eslint/parser": "^8.41.0",
     "c8": "^10.1.3",

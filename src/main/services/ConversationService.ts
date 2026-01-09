@@ -5,6 +5,101 @@ export class ConversationService {
   constructor(private prisma: PrismaClient) {}
 
   /**
+   * Enregistre un tour de parole (User + AI) généré par l'API Realtime.
+   * Si conversationId est fourni, ajoute à la conversation. Sinon, en crée une nouvelle.
+   */
+  async logRealtimeTurn(
+    userId: string,
+    conversationId: string | null,
+    userContent: string,
+    aiContent: string,
+    usage: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    },
+    model: string
+  ) {
+    try {
+      // Coût arbitraire ou basé sur le modèle (à affiner selon les vrais tarifs)
+      // Realtime API est plus chère, disons 0.01$ / 1k tokens pour l'exemple
+      const simulatedTokenCost = (usage.totalTokens / 1000) * 0.01;
+
+      return await this.prisma.$transaction(async (tx) => {
+        let activeConvId = conversationId;
+
+        // 1. Création ou Vérification de la conversation
+        if (!activeConvId) {
+          const conv = await tx.conversation.create({
+            data: {
+              userId,
+              title: userContent
+                ? userContent.substring(0, 50)
+                : 'Conversation Audio',
+            },
+          });
+          activeConvId = conv.id;
+        } else {
+          // Vérification de sécurité
+          const exists = await tx.conversation.findUnique({
+            where: { id: activeConvId, userId },
+          });
+          if (!exists) {
+            throw new ConversationServiceError(
+              'Conversation not found or access denied',
+              404
+            );
+          }
+          // Update timestamp
+          await tx.conversation.update({
+            where: { id: activeConvId },
+            data: { updatedAt: new Date() },
+          });
+        }
+
+        // 2. Message Utilisateur
+        if (userContent) {
+          await tx.message.create({
+            data: {
+              conversationId: activeConvId!,
+              sender: 'USER',
+              content: userContent,
+            },
+          });
+        }
+
+        // 3. Log d'usage IA
+        const iaUsageLog = await tx.iAUsageLog.create({
+          data: {
+            userId,
+            model,
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+            tokenCost: simulatedTokenCost.toString(),
+          },
+        });
+
+        // 4. Message IA
+        await tx.message.create({
+          data: {
+            conversationId: activeConvId!,
+            sender: 'AI',
+            content: aiContent || '(Audio response)', // Fallback si pas de transcript
+            iaUsageLogId: iaUsageLog.id,
+          },
+        });
+
+        return { conversationId: activeConvId! };
+      });
+    } catch (error) {
+      if (error instanceof ConversationServiceError) throw error;
+      console.error('Failed to log realtime turn:', error);
+      throw new ConversationServiceError('Failed to log realtime turn', 500);
+    }
+  }
+
+  /**
    * Récupère la liste des conversations pour un utilisateur donné.
    * Ne retourne que les métadonnées (id, title, dates) pour une réponse légère.
    * @param userId - L'ID de l'utilisateur.
