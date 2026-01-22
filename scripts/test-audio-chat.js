@@ -52,14 +52,35 @@ async function main() {
   });
 
   // 3. GESTION AUDIO (PROCESSUS PARENTS)
-  // Processus de lecture (Audio OUT)
-  const player = spawn('aplay', [
-    '-f', AUDIO_FORMAT,
-    '-r', SAMPLE_RATE,
-    '-c', CHANNELS,
-    '-t', 'raw',
-    '--buffer-size=2048' // Faible buffer pour réduire la latence
-  ]);
+  let player = null;
+
+  function startPlayer() {
+    if (player) {
+      if (player.stdin) player.stdin.end();
+      player.kill();
+    }
+    
+    // Processus de lecture (Audio OUT)
+    player = spawn('aplay', [
+        '-f', AUDIO_FORMAT,
+        '-r', SAMPLE_RATE,
+        '-c', CHANNELS,
+        '-t', 'raw',
+        '--buffer-size=2048' // Faible buffer pour réduire la latence
+    ]);
+    
+    // IMPORTANT: Attraper les erreurs sur le stdin pour éviter le crash EPIPE global
+    player.stdin.on('error', (err) => {
+        if (err.code !== 'EPIPE') {
+            console.error('Player Stdin Error:', err);
+        }
+    });
+
+    player.stderr.on('data', () => {});   // Ignorer les logs alsa
+  }
+  
+  // Démarrage initial
+  startPlayer();
 
   // Processus d'enregistrement (Audio IN)
   const recorder = spawn('arecord', [
@@ -90,12 +111,20 @@ async function main() {
         
         // Reset du timer de silence à chaque paquet reçu
         if (silenceTimer) clearTimeout(silenceTimer);
-        // On considère que l'IA a fini de parler après 500ms de silence
+        // On considère que l'IA a fini de parler après 1.5s de silence (Anti-Echo Buffer)
         silenceTimer = setTimeout(() => {
             isAiSpeaking = false;
-        }, 500);
+        }, 1500);
 
-        player.stdin.write(Buffer.from(event.delta, 'base64'));
+        // Ecriture dans le player s'il est actif
+        try {
+            if (player && player.stdin && !player.stdin.destroyed && player.stdin.writable) {
+                player.stdin.write(Buffer.from(event.delta, 'base64'));
+            }
+        } catch (err) {
+            // Ignorer erreurs d'écriture si player redémarre
+            if (err.code !== 'EPIPE') console.error('Audio write error:', err);
+        }
       }
 
       // Affichage visuel des événements intéressants
@@ -110,6 +139,10 @@ async function main() {
       }
       if (event.type === 'input_audio_buffer.speech_started') {
         console.log('\n[User started speaking...]');
+        console.log('⚡ Interruption détectée (Purger Audio Output)...');
+        startPlayer(); // RESET DU LECTEUR AUDIO POUR VIDER LE BUFFER
+        isAiSpeaking = false;
+        if (silenceTimer) clearTimeout(silenceTimer);
       }
       
     } catch (e) {
@@ -143,13 +176,14 @@ async function main() {
   });
 
   recorder.stderr.on('data', () => {}); // Ignorer les logs alsa
-  player.stderr.on('data', () => {});   // Ignorer les logs alsa
+  
+  // Note: player.stderr est géré dans startPlayer()
 
   // Gestion de l'arrêt
   process.on('SIGINT', () => {
     console.log('\nArrêt...');
     recorder.kill();
-    player.kill();
+    if (player) player.kill();
     ws.close();
     process.exit();
   });
