@@ -13,5 +13,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  backend:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://vrlingo:vrlingo_pass@postgres:5432/vrlingo_db
+      CHATGPT_API_KEY: ${CHATGPT_API_KEY:-}
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./config/jwt:/app/config/jwt:ro
+    command: sh -c "npx prisma migrate deploy && node dist/main/server.js"
+
 volumes:
   postgres_data:
