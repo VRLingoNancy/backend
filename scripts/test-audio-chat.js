@@ -3,14 +3,15 @@ import { spawn } from 'child_process';
 import readline from 'readline';
 
 // --- CONFIGURATION ---
-const API_URL = 'http://localhost:4242'; // Adapter le port si besoin
-const EMAIL = 'john@john.com';        // Mettre un user valide de ta BDD
-const PASSWORD = 'john';          // Mettre le mot de passe valide
+const API_URL = 'http://localhost:3000'; // Adapter le port si besoin
+const EMAIL = 'test@vrlingo.local';      // User créé pour les tests
+const PASSWORD = 'test1234';             // Mot de passe de test
 
 // Configuration Audio (Standard OpenAI Realtime)
 const AUDIO_FORMAT = 'S16_LE'; // PCM 16-bit
 const SAMPLE_RATE = '24000';   // 24kHz
 const CHANNELS = '1';          // Mono
+const AUDIO_DEVICE = process.env.AUDIO_DEVICE; // ex: "plughw:1,0"
 
 async function main() {
   console.log('🎤 VRLingo Audio Terminal Client');
@@ -59,37 +60,48 @@ async function main() {
       if (player.stdin) player.stdin.end();
       player.kill();
     }
-    
+
+    const playerArgs = [
+      '-f', AUDIO_FORMAT,
+      '-r', SAMPLE_RATE,
+      '-c', CHANNELS,
+      '-t', 'raw',
+      '--buffer-size=2048' // Faible buffer pour réduire la latence
+    ];
+    if (AUDIO_DEVICE) playerArgs.unshift('-D', AUDIO_DEVICE);
+
     // Processus de lecture (Audio OUT)
-    player = spawn('aplay', [
-        '-f', AUDIO_FORMAT,
-        '-r', SAMPLE_RATE,
-        '-c', CHANNELS,
-        '-t', 'raw',
-        '--buffer-size=2048' // Faible buffer pour réduire la latence
-    ]);
-    
+    player = spawn('aplay', playerArgs);
+
     // IMPORTANT: Attraper les erreurs sur le stdin pour éviter le crash EPIPE global
     player.stdin.on('error', (err) => {
-        if (err.code !== 'EPIPE') {
-            console.error('Player Stdin Error:', err);
-        }
+      if (err.code !== 'EPIPE') {
+        console.error('Player Stdin Error:', err);
+      }
     });
-
-    player.stderr.on('data', () => {});   // Ignorer les logs alsa
+    player.on('error', (err) => {
+      console.error('❌ aplay failed to start:', err.message);
+      process.exit(1);
+    });
+    player.stderr.on('data', (data) => {
+      const msg = data.toString().trim();
+      if (msg) console.error(`[aplay] ${msg}`);
+    });
   }
-  
+
   // Démarrage initial
   startPlayer();
 
   // Processus d'enregistrement (Audio IN)
-  const recorder = spawn('arecord', [
+  const recorderArgs = [
     '-f', AUDIO_FORMAT,
     '-r', SAMPLE_RATE,
     '-c', CHANNELS,
     '-t', 'raw',
     '--buffer-size=2048'
-  ]);
+  ];
+  if (AUDIO_DEVICE) recorderArgs.unshift('-D', AUDIO_DEVICE);
+  const recorder = spawn('arecord', recorderArgs);
 
   // --- WEBSOCKET EVENTS ---
 
@@ -175,9 +187,17 @@ async function main() {
     }
   });
 
-  recorder.stderr.on('data', () => {}); // Ignorer les logs alsa
-  
-  // Note: player.stderr est géré dans startPlayer()
+  recorder.on('error', (err) => {
+    console.error('❌ arecord failed to start:', err.message);
+    process.exit(1);
+  });
+
+  recorder.stderr.on('data', (data) => {
+    const msg = data.toString().trim();
+    if (msg) console.error(`[arecord] ${msg}`);
+  });
+
+  // Note: player stderr/error is managed in startPlayer()
 
   // Gestion de l'arrêt
   process.on('SIGINT', () => {

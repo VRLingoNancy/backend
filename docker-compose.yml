@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: vrlingo_pass
       POSTGRES_DB: vrlingo_db
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -26,7 +26,7 @@ services:
       - '3000:3000'
     volumes:
       - ./config/jwt:/app/config/jwt:ro
-    command: sh -c "npx prisma migrate deploy && node dist/main/server.js"
+    command: sh -c "npx prisma migrate deploy && npx tsx src/main/server.ts"
 
 volumes:
   postgres_data:
