@@ -121,6 +121,13 @@ model IAUsageLog {
   promptTokens     Int
   completionTokens Int
   totalTokens      Int
+
+  // Détails Realtime API (Audio vs Text)
+  promptTextTokens     Int @default(0)
+  promptAudioTokens    Int @default(0)
+  completionTextTokens Int @default(0)
+  completionAudioTokens Int @default(0)
+
   message       Message?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

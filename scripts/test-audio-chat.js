@@ -40,7 +40,8 @@ async function main() {
   console.log('✅ Token récupéré:', token.substring(0, 10) + '...');
 
   // 2. CONNECTION WEBSOCKET
-  const wsUrl = API_URL.replace('http', 'ws') + '/api/realtime/session';
+  // On passe le code langue Italien pour tester la transcription multilingue
+  const wsUrl = API_URL.replace('http', 'ws') + '/api/realtime/session?lang=fr-FR';
   console.log(`🔌 Connexion au WebSocket: ${wsUrl}`);
   
   // Clean token just in case
@@ -71,6 +72,9 @@ async function main() {
 
   // --- WEBSOCKET EVENTS ---
 
+  let isAiSpeaking = false;
+  let silenceTimer = null;
+
   ws.on('open', () => {
     console.log('✅ Connecté ! L\'IA t\'écoute (Server VAD actif). Parle...');
     console.log('🔴 Enregistrement micro actif (CTRL+C pour quitter)');
@@ -82,6 +86,15 @@ async function main() {
 
       // Gestion du flux audio entrant (de l'IA vers nous)
       if (event.type === 'response.audio.delta' && event.delta) {
+        isAiSpeaking = true;
+        
+        // Reset du timer de silence à chaque paquet reçu
+        if (silenceTimer) clearTimeout(silenceTimer);
+        // On considère que l'IA a fini de parler après 500ms de silence
+        silenceTimer = setTimeout(() => {
+            isAiSpeaking = false;
+        }, 500);
+
         player.stdin.write(Buffer.from(event.delta, 'base64'));
       }
 
@@ -91,6 +104,9 @@ async function main() {
       }
       if (event.type === 'response.done') {
         process.stdout.write('\n'); // Saut de ligne à la fin de la réponse
+        // Sécurité supplémentaire : Fin explicite de réponse
+        isAiSpeaking = false; 
+        if (silenceTimer) clearTimeout(silenceTimer);
       }
       if (event.type === 'input_audio_buffer.speech_started') {
         console.log('\n[User started speaking...]');
@@ -111,6 +127,11 @@ async function main() {
 
   const CHUNK_SIZE = 4096; // Envoyer par petits paquets
   recorder.stdout.on('data', (chunk) => {
+    // PROTECTION ANTI-ECHO : Si l'IA parle, on coupe le micro logiciel
+    if (isAiSpeaking) {
+        return;
+    }
+
     if (ws.readyState === WebSocket.OPEN) {
       // Conversion Raw PCM -> Base64 -> Événement OpenAI
       const event = {

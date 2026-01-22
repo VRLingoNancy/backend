@@ -1,6 +1,16 @@
 import { PrismaClient } from '@prisma/client';
 import { ConversationServiceError } from '../errors/ConversationServiceError';
 
+// Tarifs approximatifs (en USD pour 1000 tokens) basés sur les prix Audio Realtime (Oct 2024)
+// On prend le tarif "Audio" car c'est le mode principal, pour ne pas sous-estimer.
+const PRICING_RATES: Record<string, { prompt: number; completion: number }> = {
+  'gpt-4o-realtime-preview': { prompt: 0.1, completion: 0.2 }, // ~$100/1M in, $200/1M out
+  'gpt-4o-mini-realtime-preview': { prompt: 0.01, completion: 0.02 }, // ~$10/1M in, $20/1M out
+  'gpt-4o': { prompt: 0.005, completion: 0.015 },
+  'gpt-4o-mini': { prompt: 0.00015, completion: 0.0006 },
+  default: { prompt: 0.01, completion: 0.03 }, // Fallback
+};
+
 export class ConversationService {
   constructor(private prisma: PrismaClient) {}
 
@@ -17,13 +27,20 @@ export class ConversationService {
       promptTokens: number;
       completionTokens: number;
       totalTokens: number;
+      promptTextTokens?: number;
+      promptAudioTokens?: number;
+      completionTextTokens?: number;
+      completionAudioTokens?: number;
     },
-    model: string
+    model: string,
+    languageCode?: string // Ajout paramètre optionnel
   ) {
     try {
-      // Coût arbitraire ou basé sur le modèle (à affiner selon les vrais tarifs)
-      // Realtime API est plus chère, disons 0.01$ / 1k tokens pour l'exemple
-      const simulatedTokenCost = (usage.totalTokens / 1000) * 0.01;
+      // Calcul du coût réel basé sur le modèle
+      const rates = PRICING_RATES[model] || PRICING_RATES['default'];
+      const realCost =
+        (usage.promptTokens / 1000) * rates.prompt +
+        (usage.completionTokens / 1000) * rates.completion;
 
       return await this.prisma.$transaction(async (tx) => {
         let activeConvId = conversationId;
@@ -33,6 +50,7 @@ export class ConversationService {
           const conv = await tx.conversation.create({
             data: {
               userId,
+              languageCode: languageCode, // Stockage de la langue
               title: userContent
                 ? userContent.substring(0, 50)
                 : 'Conversation Audio',
@@ -76,7 +94,12 @@ export class ConversationService {
             promptTokens: usage.promptTokens,
             completionTokens: usage.completionTokens,
             totalTokens: usage.totalTokens,
-            tokenCost: simulatedTokenCost.toString(),
+            tokenCost: realCost.toFixed(6),
+            // Détails (avec valeurs par défaut si undefined pour compatibilité)
+            promptTextTokens: usage.promptTextTokens ?? 0,
+            promptAudioTokens: usage.promptAudioTokens ?? 0,
+            completionTextTokens: usage.completionTextTokens ?? 0,
+            completionAudioTokens: usage.completionAudioTokens ?? 0,
           },
         });
 
