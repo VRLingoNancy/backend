@@ -1,8 +1,126 @@
 import { PrismaClient } from '@prisma/client';
 import { ConversationServiceError } from '../errors/ConversationServiceError';
 
+// Tarifs approximatifs (en USD pour 1000 tokens) basés sur les prix Audio Realtime (Oct 2024)
+// On prend le tarif "Audio" car c'est le mode principal, pour ne pas sous-estimer.
+const PRICING_RATES: Record<string, { prompt: number; completion: number }> = {
+  'gpt-4o-realtime-preview': { prompt: 0.1, completion: 0.2 }, // ~$100/1M in, $200/1M out
+  'gpt-4o-mini-realtime-preview': { prompt: 0.01, completion: 0.02 }, // ~$10/1M in, $20/1M out
+  'gpt-4o': { prompt: 0.005, completion: 0.015 },
+  'gpt-4o-mini': { prompt: 0.00015, completion: 0.0006 },
+  default: { prompt: 0.01, completion: 0.03 }, // Fallback
+};
+
 export class ConversationService {
   constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Enregistre un tour de parole (User + AI) généré par l'API Realtime.
+   * Si conversationId est fourni, ajoute à la conversation. Sinon, en crée une nouvelle.
+   */
+  async logRealtimeTurn(
+    userId: string,
+    conversationId: string | null,
+    userContent: string,
+    aiContent: string,
+    usage: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+      promptTextTokens?: number;
+      promptAudioTokens?: number;
+      completionTextTokens?: number;
+      completionAudioTokens?: number;
+    },
+    model: string,
+    languageCode?: string // Ajout paramètre optionnel
+  ) {
+    try {
+      // Calcul du coût réel basé sur le modèle
+      const rates = PRICING_RATES[model] || PRICING_RATES['default'];
+      const realCost =
+        (usage.promptTokens / 1000) * rates.prompt +
+        (usage.completionTokens / 1000) * rates.completion;
+
+      return await this.prisma.$transaction(async (tx) => {
+        let activeConvId = conversationId;
+
+        // 1. Création ou Vérification de la conversation
+        if (!activeConvId) {
+          const conv = await tx.conversation.create({
+            data: {
+              userId,
+              languageCode: languageCode, // Stockage de la langue
+              title: userContent
+                ? userContent.substring(0, 50)
+                : 'Conversation Audio',
+            },
+          });
+          activeConvId = conv.id;
+        } else {
+          // Vérification de sécurité
+          const exists = await tx.conversation.findUnique({
+            where: { id: activeConvId, userId },
+          });
+          if (!exists) {
+            throw new ConversationServiceError(
+              'Conversation not found or access denied',
+              404
+            );
+          }
+          // Update timestamp
+          await tx.conversation.update({
+            where: { id: activeConvId },
+            data: { updatedAt: new Date() },
+          });
+        }
+
+        // 2. Message Utilisateur
+        if (userContent) {
+          await tx.message.create({
+            data: {
+              conversationId: activeConvId!,
+              sender: 'USER',
+              content: userContent,
+            },
+          });
+        }
+
+        // 3. Log d'usage IA
+        const iaUsageLog = await tx.iAUsageLog.create({
+          data: {
+            userId,
+            model,
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+            tokenCost: realCost.toFixed(6),
+            // Détails (avec valeurs par défaut si undefined pour compatibilité)
+            promptTextTokens: usage.promptTextTokens ?? 0,
+            promptAudioTokens: usage.promptAudioTokens ?? 0,
+            completionTextTokens: usage.completionTextTokens ?? 0,
+            completionAudioTokens: usage.completionAudioTokens ?? 0,
+          },
+        });
+
+        // 4. Message IA
+        await tx.message.create({
+          data: {
+            conversationId: activeConvId!,
+            sender: 'AI',
+            content: aiContent || '(Audio response)', // Fallback si pas de transcript
+            iaUsageLogId: iaUsageLog.id,
+          },
+        });
+
+        return { conversationId: activeConvId! };
+      });
+    } catch (error) {
+      if (error instanceof ConversationServiceError) throw error;
+      console.error('Failed to log realtime turn:', error);
+      throw new ConversationServiceError('Failed to log realtime turn', 500);
+    }
+  }
 
   /**
    * Récupère la liste des conversations pour un utilisateur donné.

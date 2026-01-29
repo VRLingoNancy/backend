@@ -28,3 +28,23 @@ To learn Fastify, check out the [Fastify documentation](https://fastify.dev/docs
 Pour utiliser signer et valider les JWT il faut générer des clés dans /config/jwt.
 La clé privé peut-être générée avec la commande : openssl genrsa -out private.pem 2048
 La clé publique peut-être générée avec la commande : openssl rsa -in private.pem -outform PEM -pubout -out public.pem
+
+## Docker
+
+### Pré-requis
+- Un fichier `config/jwt/private.pem` et `config/jwt/public.pem` (RS256) :
+  ```bash
+  mkdir -p config/jwt
+  openssl genrsa -out config/jwt/private.pem 2048
+  openssl rsa -in config/jwt/private.pem -outform PEM -pubout -out config/jwt/public.pem
+  ```
+- La variable `CHATGPT_API_KEY` exportée dans ton shell (ou dans un `.env` local si tu utilises Docker Compose v2).
+
+### Lancer avec Docker Compose
+```bash
+docker compose up --build
+```
+
+- L'API Fastify est exposée sur `http://localhost:3000`.
+- Postgres tourne en local sur `localhost:5432` (db `vrlingo_db`).
+- Les migrations Prisma sont appliquées automatiquement au démarrage du container backend.
