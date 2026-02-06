@@ -31,16 +31,16 @@ To start a conversation, connect via WebSocket to:
       response: {
         200: z.object({
           url: z.string().describe('The WebSocket URL to connect to'),
-          status: z.string()
-        })
-      }
+          status: z.string(),
+        }),
+      },
     },
-    handler: async (req, reply) => {
+    handler: async (req) => {
       return {
         url: `ws://${req.hostname}/api/realtime/session`,
-        status: 'See documentation description for protocol details'
+        status: 'See documentation description for protocol details',
       };
-    }
+    },
   });
   // --- FIN ROUTE DOCUMENTATION ---
 
@@ -73,13 +73,16 @@ To start a conversation, connect via WebSocket to:
     async (connection: WebSocket.WebSocket, request) => {
       const socket = connection;
       // @ts-ignore
-      const userId = request.user.sub;
+      const userId = request.user.sub as string;
 
       // Récupération de la langue cible passée en paramètre (ex: ?lang=it-IT)
       const query = request.query as { lang?: string };
       const targetLang = query.lang || 'en-US'; // Par défaut anglais si non spécifié
 
-      fastify.log.info({ userId, targetLang }, 'Realtime session initiating...');
+      fastify.log.info(
+        { userId, targetLang },
+        'Realtime session initiating...'
+      );
 
       const apiKey = process.env.CHATGPT_API_KEY;
       if (!apiKey) {
@@ -129,8 +132,8 @@ To start a conversation, connect via WebSocket to:
                 // AJOUT CRUCIAL: On demande explicitement la transcription de l'audio utilisateur
                 // pour pouvoir le stocker en base de données.
                 input_audio_transcription: {
-                  model: 'whisper-1'
-                }
+                  model: 'whisper-1',
+                },
               },
             };
             openAIWs.send(JSON.stringify(sessionConfig));
@@ -145,12 +148,22 @@ To start a conversation, connect via WebSocket to:
 
           // --- Logique Métier & BDD ---
 
-          if (event.type === 'conversation.item.input_audio_transcription.completed' && event.transcript) {
+          if (
+            event.type ===
+              'conversation.item.input_audio_transcription.completed' &&
+            event.transcript
+          ) {
             pendingUserTranscript = event.transcript;
           }
 
-          if (event.type === 'conversation.item.created' && event.item?.role === 'user') {
-            const content = event.item.content?.find((c: any) => c.type === 'input_text' || c.type === 'text');
+          if (
+            event.type === 'conversation.item.created' &&
+            event.item?.role === 'user'
+          ) {
+            const content = event.item.content?.find(
+              (c: { type: string; text?: string }) =>
+                c.type === 'input_text' || c.type === 'text'
+            );
             if (content?.text) pendingUserTranscript = content.text;
           }
 
@@ -161,26 +174,32 @@ To start a conversation, connect via WebSocket to:
             if (response && response.status === 'completed') {
               let aiContent = '';
               if (response.output) {
-                response.output.forEach((item: any) => {
-                  if (item.content) {
-                    item.content.forEach((c: any) => {
-                      if (c.transcript) aiContent += c.transcript;
-                      else if (c.text) aiContent += c.text;
-                    });
+                response.output.forEach(
+                  (item: {
+                    content?: Array<{ transcript?: string; text?: string }>;
+                  }) => {
+                    if (item.content) {
+                      item.content.forEach((c) => {
+                        if (c.transcript) aiContent += c.transcript;
+                        else if (c.text) aiContent += c.text;
+                      });
+                    }
                   }
-                });
+                );
               }
 
-              const usage = response.usage || { 
-                  total_tokens: 0, input_tokens: 0, output_tokens: 0 
+              const usage = response.usage || {
+                total_tokens: 0,
+                input_tokens: 0,
+                output_tokens: 0,
               };
 
               // Compatibilité avec la structure renvoyée par OpenAI Realtime
               // Note: les champs s'appellent input_token_details et output_token_details
               const inputDetails = usage.input_token_details || {};
               const outputDetails = usage.output_token_details || {};
-              
-              console.log("Usage des tokens OpenAI :", usage);
+
+              fastify.log.info({ usage }, 'Usage des tokens OpenAI :');
 
               try {
                 const result = await conversationService.logRealtimeTurn(
@@ -189,14 +208,22 @@ To start a conversation, connect via WebSocket to:
                   pendingUserTranscript,
                   aiContent,
                   {
-                    promptTokens: usage.input_tokens || usage.prompt_tokens || 0,
-                    completionTokens: usage.output_tokens || usage.completion_tokens || 0,
-                    totalTokens: usage.total_tokens || 0,
+                    promptTokens: Number(
+                      usage.input_tokens || usage.prompt_tokens || 0
+                    ),
+                    completionTokens: Number(
+                      usage.output_tokens || usage.completion_tokens || 0
+                    ),
+                    totalTokens: Number(usage.total_tokens || 0),
                     // Mapping des détails audio/texte
-                    promptTextTokens: inputDetails.text_tokens || 0,
-                    promptAudioTokens: inputDetails.audio_tokens || 0,
-                    completionTextTokens: outputDetails.text_tokens || 0,
-                    completionAudioTokens: outputDetails.audio_tokens || 0,
+                    promptTextTokens: Number(inputDetails.text_tokens || 0),
+                    promptAudioTokens: Number(inputDetails.audio_tokens || 0),
+                    completionTextTokens: Number(
+                      outputDetails.text_tokens || 0
+                    ),
+                    completionAudioTokens: Number(
+                      outputDetails.audio_tokens || 0
+                    ),
                   },
                   REALTIME_LIMITS.MODEL,
                   targetLang // Passage de la langue
@@ -204,9 +231,11 @@ To start a conversation, connect via WebSocket to:
 
                 currentConversationId = result.conversationId;
                 pendingUserTranscript = '';
-
               } catch (dbError) {
-                fastify.log.error({ err: dbError }, 'Failed to persist Realtime turn');
+                fastify.log.error(
+                  { err: dbError },
+                  'Failed to persist Realtime turn'
+                );
               }
             }
           }
@@ -228,7 +257,7 @@ To start a conversation, connect via WebSocket to:
           // Pour l'audio, le client doit envoyer :
           // {
           //   "type": "input_audio_buffer.append",
-          //   "audio": "<BASE64_STRING_OF_PCM16_AUDIO>" 
+          //   "audio": "<BASE64_STRING_OF_PCM16_AUDIO>"
           // }
           // Le client NE DOIT PAS faire de STT (Speech-to-Text) localement.
           // Le client NE DOIT PAS envoyer de binaire brut (Blob/ArrayBuffer).
@@ -236,7 +265,7 @@ To start a conversation, connect via WebSocket to:
           const messageString = data.toString();
           try {
             JSON.parse(messageString);
-          } catch (e) {
+          } catch {
             return; // Ignore les données non-JSON (ex: audio binaire mal formaté)
           }
 
@@ -257,15 +286,20 @@ To start a conversation, connect via WebSocket to:
       });
 
       openAIWs.on('close', (code, reason) => {
-        fastify.log.info({ code, reason: reason.toString() }, 'OpenAI connection closed');
+        fastify.log.info(
+          { code, reason: reason.toString() },
+          'OpenAI connection closed'
+        );
         if (socket.readyState === WebSocket.OPEN) socket.close();
       });
 
       openAIWs.on('error', (error) => {
         fastify.log.error({ err: error }, 'OpenAI WebSocket error');
-        if (socket.readyState === WebSocket.OPEN) socket.close(1011, 'Upstream error');
+        if (socket.readyState === WebSocket.OPEN)
+          socket.close(1011, 'Upstream error');
       });
-    });
+    }
+  );
 };
 
 export default realtimeRoutes;
