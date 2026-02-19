@@ -34,7 +34,6 @@ const getSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user is added by the auth decorator
         const userId = request.user.sub;
 
         const settings = await userService.getUserSettings(userId);

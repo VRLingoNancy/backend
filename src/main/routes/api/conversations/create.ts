@@ -42,7 +42,6 @@ const createConversationRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user is added by the decorator @fastify/jwt
         const userId = request.user.sub;
         const { content } = request.body;
 

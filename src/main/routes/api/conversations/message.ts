@@ -48,8 +48,7 @@ const messageRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user est ajouté par le décorateur @fastify/jwt
-        const userId = request.user?.sub;
+        const userId = request.user.sub;
         const { conversationId, content } = request.body;
 
         const result = await conversationService.addMessage(

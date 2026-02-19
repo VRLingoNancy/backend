@@ -32,8 +32,7 @@ const deleteConversationRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user comes from fastify-jwt decorator
-        const userId = request.user?.sub;
+        const userId = request.user.sub;
         const { conversationId } = request.params as { conversationId: string };
 
         await conversationService.deleteById(conversationId, userId);

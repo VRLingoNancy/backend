@@ -49,8 +49,7 @@ const getConversationRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user est ajouté par le décorateur @fastify/jwt
-        const userId = request.user?.sub;
+        const userId = request.user.sub;
         const { conversationId } = request.params as { conversationId: string };
 
         const conversation = await conversationService.getById(

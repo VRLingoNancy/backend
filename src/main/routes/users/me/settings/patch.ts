@@ -39,7 +39,6 @@ const patchSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user is added by the auth decorator
         const userId = request.user.sub;
         const dataToUpdate = request.body;
 

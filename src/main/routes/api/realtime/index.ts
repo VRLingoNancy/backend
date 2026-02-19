@@ -72,8 +72,7 @@ To start a conversation, connect via WebSocket to:
     { websocket: true, preHandler: [fastify.authenticate], schema },
     async (connection: WebSocket.WebSocket, request) => {
       const socket = connection;
-      // @ts-ignore
-      const userId = request.user.sub as string;
+      const userId = request.user.sub;
 
       // Récupération de la langue cible passée en paramètre (ex: ?lang=it-IT)
       const query = request.query as { lang?: string };

@@ -35,7 +35,6 @@ const listConversationsRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       try {
-        // @ts-ignore - request.user is added by the decorator @fastify/jwt
         const userId = request.user.sub;
 
         const conversations = await conversationService.listForUser(userId);
