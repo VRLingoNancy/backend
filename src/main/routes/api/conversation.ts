@@ -34,8 +34,26 @@ const conversationRoute: FastifyPluginAsync = async (fastify) => {
     '/conversation',
     { schema },
     async (request, reply) => {
+      const startedAt = Date.now();
+      const traceId =
+        typeof request.headers['x-trace-id'] === 'string'
+          ? request.headers['x-trace-id']
+          : request.id;
+      const clientStage =
+        typeof request.headers['x-client-stage'] === 'string'
+          ? request.headers['x-client-stage']
+          : undefined;
+      const clientMode =
+        typeof request.headers['x-client-mode'] === 'string'
+          ? request.headers['x-client-mode']
+          : undefined;
+
       const apiKey = process.env.CHATGPT_API_KEY ?? process.env.OPENAI_API_KEY;
       if (!apiKey) {
+        fastify.log.error(
+          { traceId },
+          'Missing OpenAI API key for conversation'
+        );
         return reply.code(500).send({
           error: 'CHATGPT_API_KEY (or OPENAI_API_KEY) is not configured',
         });
@@ -43,6 +61,7 @@ const conversationRoute: FastifyPluginAsync = async (fastify) => {
 
       const message = request.body.message.trim();
       if (!message) {
+        fastify.log.warn({ traceId }, 'Empty message for conversation');
         return reply.code(400).send({ error: 'message is required' });
       }
 
@@ -53,6 +72,19 @@ const conversationRoute: FastifyPluginAsync = async (fastify) => {
         request.body.model?.trim() ||
         process.env.OPENAI_CHAT_MODEL ||
         'gpt-4o-mini';
+      fastify.log.info(
+        {
+          traceId,
+          clientStage,
+          clientMode,
+          messageLength: message.length,
+          locale,
+          targetLanguage,
+          level,
+          model,
+        },
+        'Conversation request started'
+      );
 
       const systemPrompt = [
         'You are VRLingo, a concise and supportive language coach.',
@@ -89,7 +121,12 @@ const conversationRoute: FastifyPluginAsync = async (fastify) => {
 
       if (!upstreamResponse.ok) {
         fastify.log.error(
-          { status: upstreamResponse.status, payload },
+          {
+            traceId,
+            status: upstreamResponse.status,
+            payload,
+            durationMs: Date.now() - startedAt,
+          },
           'OpenAI chat completion failed'
         );
         return reply.code(502).send({
@@ -100,11 +137,24 @@ const conversationRoute: FastifyPluginAsync = async (fastify) => {
 
       const aiReply = payload.choices?.[0]?.message?.content?.trim();
       if (!aiReply) {
+        fastify.log.error(
+          { traceId, durationMs: Date.now() - startedAt },
+          'OpenAI chat completion returned empty reply'
+        );
         return reply
           .code(502)
           .send({ error: 'Empty reply from language model' });
       }
 
+      fastify.log.info(
+        {
+          traceId,
+          durationMs: Date.now() - startedAt,
+          replyLength: aiReply.length,
+          model: payload.model || model,
+        },
+        'Conversation request completed'
+      );
       return reply.code(200).send({
         reply: aiReply,
         sessionId: request.body.sessionId,

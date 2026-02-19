@@ -29,8 +29,23 @@ const transcribeRoute: FastifyPluginAsync = async (fastify) => {
     '/transcribe',
     { schema },
     async (request, reply) => {
+      const startedAt = Date.now();
+      const traceId =
+        typeof request.headers['x-trace-id'] === 'string'
+          ? request.headers['x-trace-id']
+          : request.id;
+      const clientStage =
+        typeof request.headers['x-client-stage'] === 'string'
+          ? request.headers['x-client-stage']
+          : undefined;
+      const clientMode =
+        typeof request.headers['x-client-mode'] === 'string'
+          ? request.headers['x-client-mode']
+          : undefined;
+
       const apiKey = process.env.CHATGPT_API_KEY ?? process.env.OPENAI_API_KEY;
       if (!apiKey) {
+        fastify.log.error({ traceId }, 'Missing OpenAI API key for transcribe');
         return reply.code(500).send({
           error: 'CHATGPT_API_KEY (or OPENAI_API_KEY) is not configured',
         });
@@ -40,15 +55,28 @@ const transcribeRoute: FastifyPluginAsync = async (fastify) => {
       try {
         audioBuffer = Buffer.from(request.body.audio, 'base64');
       } catch {
+        fastify.log.warn({ traceId }, 'Invalid base64 payload for transcribe');
         return reply.code(400).send({ error: 'audio must be valid base64' });
       }
 
       if (!audioBuffer.length) {
+        fastify.log.warn({ traceId }, 'Empty audio payload for transcribe');
         return reply.code(400).send({ error: 'audio payload is empty' });
       }
 
       const mimeType = request.body.mimeType?.trim() || 'audio/wav';
       const language = request.body.language?.trim();
+      fastify.log.info(
+        {
+          traceId,
+          clientStage,
+          clientMode,
+          mimeType,
+          language,
+          audioBytes: audioBuffer.length,
+        },
+        'Transcribe request started'
+      );
 
       const formData = new FormData();
       const audioBlob = new Blob([audioBuffer], { type: mimeType });
@@ -76,7 +104,12 @@ const transcribeRoute: FastifyPluginAsync = async (fastify) => {
 
       if (!upstreamResponse.ok) {
         fastify.log.error(
-          { status: upstreamResponse.status, payload },
+          {
+            traceId,
+            status: upstreamResponse.status,
+            payload,
+            durationMs: Date.now() - startedAt,
+          },
           'OpenAI transcription failed'
         );
         return reply.code(502).send({
@@ -85,6 +118,14 @@ const transcribeRoute: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      fastify.log.info(
+        {
+          traceId,
+          durationMs: Date.now() - startedAt,
+          transcriptLength: payload.text?.length ?? 0,
+        },
+        'Transcribe request completed'
+      );
       return reply.code(200).send({ text: payload.text || '' });
     }
   );
