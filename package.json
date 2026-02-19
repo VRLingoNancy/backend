@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/main/server.js",
+    "start": "tsx dist/main/server.js",
     "test": "NODE_ENV=test tsx --test src/test/**/*.test.ts",
     "test:cov": "NODE_ENV=test c8 tsx --test src/test/**/*.test.ts",
     "dev": "nodemon",
