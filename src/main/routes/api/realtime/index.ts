@@ -147,11 +147,17 @@ To start a conversation, connect via WebSocket to:
                              L'utilisateur souhaite pratiquer la langue suivante : ${targetLang}.
                              Détecte automatiquement si l'utilisateur parle cette langue ou sa langue maternelle, et adapte-toi.
                              Si l'audio est ambiguë, privilégie la langue cible (${targetLang}) pour la transcription.
-                             Sois encourageant et corrige les erreurs importantes de manière bienveillante.`,
+                             Sois encourageant et corrige les erreurs importantes de manière bienveillante.
+                             Réponds de manière concise, en 1 à 2 phrases maximum.`,
                 voice: 'alloy',
                 input_audio_format: 'pcm16',
                 output_audio_format: 'pcm16',
-                turn_detection: { type: 'server_vad' },
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.7,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: 300,
+                },
                 // AJOUT CRUCIAL: On demande explicitement la transcription de l'audio utilisateur
                 // pour pouvoir le stocker en base de données.
                 input_audio_transcription: {

@@ -14,11 +14,13 @@ export default fp(async (fastify) => {
   fastify.decorate(
     'authenticate',
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      // La fonction jwtVerify fait :
-      // 1. Trouve le token dans le header
-      // 2. Le vérifie
-      // 3. Attache le payload à request.user
-      // 4. Envoie une erreur 401 si ça échoue
+      // Support token in query parameter for WebSocket connections
+      // (NativeWebSocket on Android doesn't support custom headers)
+      const query = request.query as { token?: string };
+      if (!request.headers.authorization && query.token) {
+        request.headers.authorization = `Bearer ${query.token}`;
+      }
+
       await request.jwtVerify();
     }
   );
