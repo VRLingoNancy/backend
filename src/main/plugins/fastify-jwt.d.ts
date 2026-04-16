@@ -5,12 +5,12 @@ declare module '@fastify/jwt' {
     payload: {
       sub: string;
       role?: string;
-      type?: 'refresh';
+      type?: 'refresh' | 'ws-ticket';
     };
     user: {
       sub: string;
       role?: string;
-      type?: 'refresh';
+      type?: 'refresh' | 'ws-ticket';
       iat?: number;
       exp?: number;
     };
