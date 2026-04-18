@@ -4,8 +4,8 @@ import readline from 'readline';
 
 // --- CONFIGURATION ---
 const API_URL = 'http://localhost:3000'; // Adapter le port si besoin
-const EMAIL = 'test@vrlingo.local';      // User créé pour les tests
-const PASSWORD = 'test1234';             // Mot de passe de test
+const EMAIL = 'user@example.com';      // User créé pour les tests
+const PASSWORD = 'string';             // Mot de passe de test
 
 // Configuration Audio (Standard OpenAI Realtime)
 const AUDIO_FORMAT = 'S16_LE'; // PCM 16-bit
@@ -107,6 +107,7 @@ async function main() {
 
   let isAiSpeaking = false;
   let silenceTimer = null;
+  let latestUserTranscript = '';
 
   ws.on('open', () => {
     console.log('✅ Connecté ! L\'IA t\'écoute (Server VAD actif). Parle...');
@@ -117,42 +118,64 @@ async function main() {
     try {
       const event = JSON.parse(data.toString());
 
-      // Gestion du flux audio entrant (de l'IA vers nous)
+      // Fallback local: conserver la dernière transcription utilisateur finalisée.
+      if (
+        event.type === 'conversation.item.input_audio_transcription.completed' &&
+        typeof event.transcript === 'string'
+      ) {
+        latestUserTranscript = event.transcript.trim();
+      }
+
+      // Log uniquement les tours enrichis côté backend
+      if (event.type === 'response.done') {
+        process.stdout.write('\n');
+        isAiSpeaking = false;
+        if (silenceTimer) clearTimeout(silenceTimer);
+        // Log question/réponse
+        const userQuestion =
+          (typeof event.user_transcript === 'string' && event.user_transcript.trim()) ||
+          latestUserTranscript ||
+          '(inconnue)';
+
+        console.log('\n[IA LOG] Question comprise :', userQuestion);
+        let iaText = '';
+        if (event.response && event.response.output) {
+          event.response.output.forEach((item) => {
+            item.content?.forEach((contentPart) => {
+              if (typeof contentPart.transcript === 'string') {
+                iaText += contentPart.transcript;
+              } else if (typeof contentPart.text === 'string') {
+                iaText += contentPart.text;
+              }
+            });
+          });
+        }
+        console.log('[IA LOG] Réponse IA :', iaText || '(aucune)');
+        latestUserTranscript = '';
+      }
+
+      // ...existing code...
       if (event.type === 'response.audio.delta' && event.delta) {
         isAiSpeaking = true;
-        
-        // Reset du timer de silence à chaque paquet reçu
         if (silenceTimer) clearTimeout(silenceTimer);
-        // On considère que l'IA a fini de parler après 1.5s de silence (Anti-Echo Buffer)
         silenceTimer = setTimeout(() => {
             isAiSpeaking = false;
         }, 1500);
-
-        // Ecriture dans le player s'il est actif
         try {
             if (player && player.stdin && !player.stdin.destroyed && player.stdin.writable) {
                 player.stdin.write(Buffer.from(event.delta, 'base64'));
             }
         } catch (err) {
-            // Ignorer erreurs d'écriture si player redémarre
             if (err.code !== 'EPIPE') console.error('Audio write error:', err);
         }
       }
-
-      // Affichage visuel des événements intéressants
       if (event.type === 'response.audio_transcript.delta' && event.delta) {
-        process.stdout.write(event.delta); // Effet machine à écrire
-      }
-      if (event.type === 'response.done') {
-        process.stdout.write('\n'); // Saut de ligne à la fin de la réponse
-        // Sécurité supplémentaire : Fin explicite de réponse
-        isAiSpeaking = false; 
-        if (silenceTimer) clearTimeout(silenceTimer);
+        process.stdout.write(event.delta);
       }
       if (event.type === 'input_audio_buffer.speech_started') {
         console.log('\n[User started speaking...]');
         console.log('⚡ Interruption détectée (Purger Audio Output)...');
-        startPlayer(); // RESET DU LECTEUR AUDIO POUR VIDER LE BUFFER
+        startPlayer();
         isAiSpeaking = false;
         if (silenceTimer) clearTimeout(silenceTimer);
       }

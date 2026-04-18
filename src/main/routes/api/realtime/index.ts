@@ -4,12 +4,54 @@ import { z } from 'zod';
 import { REALTIME_LIMITS, SessionGuard } from '../../../config/realtime-limits';
 import { ConversationService } from '../../../services/ConversationService';
 
+type RealtimeContentPart = {
+  type?: string;
+  text?: string;
+  transcript?: string;
+};
+
+type RealtimeUserItem = {
+  id?: string;
+  role?: string;
+  content?: RealtimeContentPart[];
+};
+
+type RealtimeEvent = {
+  type: string;
+  item_id?: string;
+  previous_item_id?: string;
+  delta?: string;
+  transcript?: string;
+  item?: RealtimeUserItem;
+  response?: {
+    id?: string;
+    status?: string;
+    output?: Array<{
+      id?: string;
+      role?: string;
+      content?: RealtimeContentPart[];
+    }>;
+    usage?: {
+      total_tokens?: number;
+      input_tokens?: number;
+      output_tokens?: number;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      input_token_details?: {
+        text_tokens?: number;
+        audio_tokens?: number;
+      };
+      output_token_details?: {
+        text_tokens?: number;
+        audio_tokens?: number;
+      };
+    };
+  };
+};
+
 const realtimeRoutes: FastifyPluginAsync = async (fastify) => {
   const conversationService = new ConversationService(fastify.prisma);
 
-  // --- ROUTE DE DOCUMENTATION (DUMMY) ---
-  // Cette route sert uniquement à documenter le WebSocket dans Swagger UI
-  // car certains générateurs ignorent les routes { websocket: true }
   fastify.get('/connect-info', {
     schema: {
       summary: 'ℹ️ WebSocket Connection Info',
@@ -24,9 +66,9 @@ To start a conversation, connect via WebSocket to:
 - \`Authorization\`: Bearer Token (JWT)
 
 **Protocol:**
-- **Client sends:** JSON events (audio buffer append)
-- **Server sends:** JSON events (audio delta, transcript)
-        `,
+- **Client sends:** JSON events (audio buffer append / commit / response.create)
+- **Server sends:** JSON events (audio delta, transcript, lifecycle)
+      `,
       tags: ['realtime', 'ai'],
       response: {
         200: z.object({
@@ -35,14 +77,11 @@ To start a conversation, connect via WebSocket to:
         }),
       },
     },
-    handler: async (req) => {
-      return {
-        url: `ws://${req.hostname}/api/realtime/session`,
-        status: 'See documentation description for protocol details',
-      };
-    },
+    handler: async (req) => ({
+      url: `ws://${req.hostname}/api/realtime/session`,
+      status: 'See documentation description for protocol details',
+    }),
   });
-  // --- FIN ROUTE DOCUMENTATION ---
 
   const schema: FastifySchema = {
     summary: 'Realtime AI Conversation Session',
@@ -65,8 +104,6 @@ To start a conversation, connect via WebSocket to:
     },
   };
 
-  // NOTE IMPORTANTE: Cette route nécessite une connexion WebSocket (ws:// ou wss://)
-  // Le client ne doit pas utiliser HTTP GET standard ici.
   fastify.get(
     '/session',
     { websocket: true, preHandler: [fastify.authenticate], schema },
@@ -75,12 +112,11 @@ To start a conversation, connect via WebSocket to:
       // @ts-ignore
       const userId = request.user.sub as string;
 
-      // Récupération de la langue cible passée en paramètre (ex: ?lang=it-IT)
       const query = request.query as { lang?: string };
-      const targetLang = query.lang || 'en-US'; // Par défaut anglais si non spécifié
+      const targetLang = query.lang || 'en-US';
 
       fastify.log.info(
-        { userId, targetLang },
+        { userId, targetLang, model: REALTIME_LIMITS.MODEL },
         'Realtime session initiating...'
       );
 
@@ -92,9 +128,7 @@ To start a conversation, connect via WebSocket to:
 
       const sessionGuard = new SessionGuard();
 
-      // Utilisation du modèle défini dans la configuration (ex: gpt-4o-mini-realtime-preview)
       const url = `wss://api.openai.com/v1/realtime?model=${REALTIME_LIMITS.MODEL}`;
-
       const openAIWs = new WebSocket(url, {
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -104,7 +138,65 @@ To start a conversation, connect via WebSocket to:
 
       let isSessionActive = false;
       let currentConversationId: string | null = null;
-      let pendingUserTranscript: string = '';
+
+      /**
+       * Why these maps?
+       * - Realtime events are asynchronous and may arrive slightly out of order.
+       * - input_audio_transcription is separate from the model's native audio understanding.
+       * - We persist only the completed transcription event, never the user item text fallback.
+       */
+      const pendingTranscriptByItemId = new Map<string, string>();
+      const recentCommittedUserItemIds: string[] = [];
+
+      const rememberCommittedUserItem = (itemId: string) => {
+        recentCommittedUserItemIds.push(itemId);
+        if (recentCommittedUserItemIds.length > 20) {
+          recentCommittedUserItemIds.shift();
+        }
+      };
+
+      const getLatestCommittedUserItemId = (): string | null => {
+        return recentCommittedUserItemIds.length
+          ? recentCommittedUserItemIds[recentCommittedUserItemIds.length - 1]
+          : null;
+      };
+
+      const getTranscriptForPersistence = (): {
+        itemId: string | null;
+        transcript: string;
+      } => {
+        const latestItemId = getLatestCommittedUserItemId();
+        if (!latestItemId) {
+          return { itemId: null, transcript: '' };
+        }
+
+        return {
+          itemId: latestItemId,
+          transcript: pendingTranscriptByItemId.get(latestItemId) || '',
+        };
+      };
+
+      const getMostRecentNonEmptyTranscript = (): string => {
+        for (let i = recentCommittedUserItemIds.length - 1; i >= 0; i -= 1) {
+          const itemId = recentCommittedUserItemIds[i];
+          const transcript = (pendingTranscriptByItemId.get(itemId) || '').trim();
+          if (transcript) {
+            return transcript;
+          }
+        }
+
+        return '';
+      };
+
+      const clearPersistedTranscript = (itemId: string | null) => {
+        if (!itemId) return;
+        pendingTranscriptByItemId.delete(itemId);
+
+        const idx = recentCommittedUserItemIds.lastIndexOf(itemId);
+        if (idx >= 0) {
+          recentCommittedUserItemIds.splice(idx, 1);
+        }
+      };
 
       openAIWs.on('open', () => {
         fastify.log.info('✅ Connected to OpenAI Realtime API');
@@ -112,80 +204,142 @@ To start a conversation, connect via WebSocket to:
 
       openAIWs.on('message', async (data: WebSocket.RawData) => {
         try {
-          const event = JSON.parse(data.toString());
+          const event = JSON.parse(data.toString()) as RealtimeEvent;
+          const isResponseDone = event.type === 'response.done';
 
-          // Initialisation de la session
           if (event.type === 'session.created') {
             const sessionConfig = {
               type: 'session.update',
               session: {
                 modalities: ['text', 'audio'],
                 instructions: `Tu es VRLingo, un professeur de langues expert.
-                             L'utilisateur souhaite pratiquer la langue suivante : ${targetLang}.
-                             Détecte automatiquement si l'utilisateur parle cette langue ou sa langue maternelle, et adapte-toi.
-                             Si l'audio est ambiguë, privilégie la langue cible (${targetLang}) pour la transcription.
-                             Sois encourageant et corrige les erreurs importantes de manière bienveillante.`,
+L'utilisateur souhaite pratiquer la langue suivante : ${targetLang}.
+Détecte automatiquement si l'utilisateur parle cette langue ou sa langue maternelle, puis adapte ta réponse.
+Si l'utilisateur s'exprime dans sa langue maternelle, aide-le à reformuler dans la langue cible (${targetLang}).
+Corrige les erreurs importantes de manière bienveillante.
+Réponds principalement dans la langue cible (${targetLang}), sauf si une explication courte dans une autre langue est nécessaire.`,
                 voice: 'alloy',
                 input_audio_format: 'pcm16',
                 output_audio_format: 'pcm16',
-                turn_detection: { type: 'server_vad' },
-                // AJOUT CRUCIAL: On demande explicitement la transcription de l'audio utilisateur
-                // pour pouvoir le stocker en base de données.
+                turn_detection: {
+                  type: 'server_vad',
+                },
                 input_audio_transcription: {
-                  model: 'whisper-1',
+                  model: 'gpt-4o-mini-transcribe',
                 },
               },
             };
+
             openAIWs.send(JSON.stringify(sessionConfig));
             isSessionActive = true;
-            fastify.log.info('✨ Session initialized and configured');
+            fastify.log.info(
+              { targetLang, transcriptionModel: 'gpt-4o-mini-transcribe' },
+              '✨ Session initialized and configured'
+            );
           }
 
-          // Relayer l'événement au client VR
-          if (socket.readyState === WebSocket.OPEN) {
+          // Relay everything to the VR client so the frontend stays fully event-driven.
+          // For response.done, we skip raw relay and send an enriched event later.
+          if (socket.readyState === WebSocket.OPEN && !isResponseDone) {
             socket.send(data.toString());
           }
 
-          // --- Logique Métier & BDD ---
+          // Track user audio commits so we can associate later transcript events with a turn.
+          if (event.type === 'input_audio_buffer.committed' && event.item_id) {
+            rememberCommittedUserItem(event.item_id);
+            if (!pendingTranscriptByItemId.has(event.item_id)) {
+              pendingTranscriptByItemId.set(event.item_id, '');
+            }
+          }
 
+          // Incremental user transcript stream.
+          if (
+            event.type === 'conversation.item.input_audio_transcription.delta' &&
+            event.item_id &&
+            typeof event.delta === 'string'
+          ) {
+            const previous = pendingTranscriptByItemId.get(event.item_id) || '';
+            pendingTranscriptByItemId.set(event.item_id, previous + event.delta);
+          }
+
+          // Final user transcript. This is the only transcript we persist.
           if (
             event.type ===
               'conversation.item.input_audio_transcription.completed' &&
-            event.transcript
+            event.item_id &&
+            typeof event.transcript === 'string'
           ) {
-            pendingUserTranscript = event.transcript;
+            if (!recentCommittedUserItemIds.includes(event.item_id)) {
+              rememberCommittedUserItem(event.item_id);
+            }
+            pendingTranscriptByItemId.set(event.item_id, event.transcript.trim());
+
+            fastify.log.debug(
+              {
+                itemId: event.item_id,
+                transcript: event.transcript,
+              },
+              'Completed user input transcription received'
+            );
           }
 
+          if (
+            event.type ===
+              'conversation.item.input_audio_transcription.failed' &&
+            event.item_id
+          ) {
+            fastify.log.warn(
+              { itemId: event.item_id, event },
+              'User input transcription failed'
+            );
+          }
+
+          // Keep this only for observability. We do NOT use item.content text as transcript fallback.
           if (
             event.type === 'conversation.item.created' &&
             event.item?.role === 'user'
           ) {
-            const content = event.item.content?.find(
-              (c: { type: string; text?: string }) =>
-                c.type === 'input_text' || c.type === 'text'
+            fastify.log.debug(
+              {
+                itemId: event.item.id,
+                contentTypes:
+                  event.item.content?.map((part) => part.type).filter(Boolean) ||
+                  [],
+              },
+              'User conversation item created'
             );
-            if (content?.text) pendingUserTranscript = content.text;
           }
 
           if (event.type === 'response.done') {
             sessionGuard.incrementTurn();
             const response = event.response;
+            const { itemId: persistedUserItemId, transcript: userTranscript } =
+              getTranscriptForPersistence();
+            const transcriptForTurn =
+              userTranscript.trim() || getMostRecentNonEmptyTranscript();
+
+            // Always send an enriched response.done to the client, even for interrupted/cancelled turns.
+            if (socket.readyState === WebSocket.OPEN) {
+              const enrichedEvent = {
+                ...event,
+                user_transcript: transcriptForTurn,
+              };
+              socket.send(JSON.stringify(enrichedEvent));
+            }
 
             if (response && response.status === 'completed') {
               let aiContent = '';
+
               if (response.output) {
-                response.output.forEach(
-                  (item: {
-                    content?: Array<{ transcript?: string; text?: string }>;
-                  }) => {
-                    if (item.content) {
-                      item.content.forEach((c) => {
-                        if (c.transcript) aiContent += c.transcript;
-                        else if (c.text) aiContent += c.text;
-                      });
+                response.output.forEach((item) => {
+                  item.content?.forEach((contentPart) => {
+                    if (typeof contentPart.transcript === 'string') {
+                      aiContent += contentPart.transcript;
+                    } else if (typeof contentPart.text === 'string') {
+                      aiContent += contentPart.text;
                     }
-                  }
-                );
+                  });
+                });
               }
 
               const usage = response.usage || {
@@ -194,18 +348,33 @@ To start a conversation, connect via WebSocket to:
                 output_tokens: 0,
               };
 
-              // Compatibilité avec la structure renvoyée par OpenAI Realtime
-              // Note: les champs s'appellent input_token_details et output_token_details
               const inputDetails = usage.input_token_details || {};
               const outputDetails = usage.output_token_details || {};
 
-              fastify.log.info({ usage }, 'Usage des tokens OpenAI :');
+              fastify.log.info(
+                {
+                  usage,
+                  persistedUserItemId,
+                  userTranscriptLength: transcriptForTurn.length,
+                  aiContentLength: aiContent.length,
+                },
+                'OpenAI Realtime response completed'
+              );
+
+              // --- Ajout de la question utilisateur dans la réponse envoyée au client ---
+              if (socket.readyState === WebSocket.OPEN) {
+                const enrichedEvent = {
+                  ...event,
+                  user_transcript: transcriptForTurn,
+                };
+                socket.send(JSON.stringify(enrichedEvent));
+              }
 
               try {
                 const result = await conversationService.logRealtimeTurn(
                   userId,
                   currentConversationId,
-                  pendingUserTranscript,
+                  transcriptForTurn,
                   aiContent,
                   {
                     promptTokens: Number(
@@ -215,7 +384,6 @@ To start a conversation, connect via WebSocket to:
                       usage.output_tokens || usage.completion_tokens || 0
                     ),
                     totalTokens: Number(usage.total_tokens || 0),
-                    // Mapping des détails audio/texte
                     promptTextTokens: Number(inputDetails.text_tokens || 0),
                     promptAudioTokens: Number(inputDetails.audio_tokens || 0),
                     completionTextTokens: Number(
@@ -226,14 +394,17 @@ To start a conversation, connect via WebSocket to:
                     ),
                   },
                   REALTIME_LIMITS.MODEL,
-                  targetLang // Passage de la langue
+                  targetLang
                 );
 
                 currentConversationId = result.conversationId;
-                pendingUserTranscript = '';
+                clearPersistedTranscript(persistedUserItemId);
               } catch (dbError) {
                 fastify.log.error(
-                  { err: dbError },
+                  {
+                    err: dbError,
+                    persistedUserItemId,
+                  },
                   'Failed to persist Realtime turn'
                 );
               }
@@ -244,29 +415,33 @@ To start a conversation, connect via WebSocket to:
         }
       });
 
-      // Relayer les messages du Client VR vers OpenAI
       socket.on('message', (data: WebSocket.RawData) => {
-        // Protection : on ignore les messages tant que la session n'est pas prête
         if (!isSessionActive) return;
 
         try {
           sessionGuard.checkLimits();
 
-          // Validation : OpenAI attend des événements JSON, pas de flux binaire brut.
-          // --- FORMAT ATTENDU DU CLIENT VR ---
-          // Pour l'audio, le client doit envoyer :
-          // {
-          //   "type": "input_audio_buffer.append",
-          //   "audio": "<BASE64_STRING_OF_PCM16_AUDIO>"
-          // }
-          // Le client NE DOIT PAS faire de STT (Speech-to-Text) localement.
-          // Le client NE DOIT PAS envoyer de binaire brut (Blob/ArrayBuffer).
-          // -----------------------------------
+          /**
+           * Expected payload from VR client:
+           * {
+           *   "type": "input_audio_buffer.append",
+           *   "audio": "<BASE64_PCM16>"
+           * }
+           *
+           * The client may also send:
+           * - input_audio_buffer.commit
+           * - response.create
+           * - other valid Realtime JSON events
+           *
+           * The client must not send raw binary blobs directly to this server.
+           */
           const messageString = data.toString();
+
           try {
             JSON.parse(messageString);
           } catch {
-            return; // Ignore les données non-JSON (ex: audio binaire mal formaté)
+            fastify.log.warn('Ignoring non-JSON WebSocket payload from client');
+            return;
           }
 
           if (openAIWs.readyState === WebSocket.OPEN) {
@@ -295,8 +470,9 @@ To start a conversation, connect via WebSocket to:
 
       openAIWs.on('error', (error) => {
         fastify.log.error({ err: error }, 'OpenAI WebSocket error');
-        if (socket.readyState === WebSocket.OPEN)
+        if (socket.readyState === WebSocket.OPEN) {
           socket.close(1011, 'Upstream error');
+        }
       });
     }
   );
