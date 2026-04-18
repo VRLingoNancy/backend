@@ -1,11 +1,9 @@
 import { FastifyPluginAsync, FastifySchema } from 'fastify';
 import WebSocket from 'ws';
 import { z } from 'zod';
-import { REALTIME_LIMITS, SessionGuard } from '../../../config/realtime-limits';
 import { ConversationService } from '../../../services/ConversationService';
 
 import type { RealtimeConversationContext } from './realtime.types';
-import { normalizeLangCode } from './realtime.languages';
 import { RealtimeSessionService } from '../../../services/RealtimeSessionService';
 
 const realtimeRoutes: FastifyPluginAsync = async (fastify) => {
