@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: vrlingo
+      POSTGRES_PASSWORD: vrlingo_pass
+      POSTGRES_DB: vrlingo_db
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    image: node:22-slim
+    working_dir: /app
+    depends_on:
+      - postgres
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://vrlingo:vrlingo_pass@postgres:5432/vrlingo_db
+      CHATGPT_API_KEY: ${CHATGPT_API_KEY:-}
+      NODE_ENV: development
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./:/app
+      - backend_node_modules:/app/node_modules
+    command: >
+      sh -c "npm ci &&
+      npx prisma generate &&
+      npx prisma migrate deploy &&
+      npm run dev"
+
+volumes:
+  postgres_data:
+    external: true
+    name: backend_postgres_data
+  backend_node_modules:
