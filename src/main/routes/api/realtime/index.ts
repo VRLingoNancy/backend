@@ -16,6 +16,8 @@ type RealtimeUserItem = {
   content?: RealtimeContentPart[];
 };
 
+type RealtimeConversationContext = 'medieval';
+
 type RealtimeEvent = {
   type: string;
   item_id?: string;
@@ -50,6 +52,48 @@ type RealtimeEvent = {
 };
 
 const realtimeRoutes: FastifyPluginAsync = async (fastify) => {
+        // Instructions système traduites pour chaque langue supportée
+        const SESSION_INSTRUCTIONS: Record<string, { classic: string; medieval: string }> = {
+          fr: {
+            classic: `Tu es VRLingo, un professeur de langues expert, patient et motivant.\nObjectif principal : aider l'utilisateur à pratiquer le français de façon active.\nRègles strictes :\n- La langue de pratique est déjà définie par l'application : français.\n- N'interroge jamais l'utilisateur sur la langue à pratiquer.\n- Utilise principalement le français dans toutes tes réponses.\n- Si l'utilisateur parle dans une autre langue, reformule sa phrase en français, puis continue en français.\n- Corrige les erreurs importantes avec bienveillance et exemples courts.\n- Donne des réponses claires, naturelles et utiles pour une vraie conversation.\n- Pose régulièrement une question pour maintenir l'échange.\n- Évite les explications longues sauf demande explicite de l'utilisateur.\nMode classique : style pédagogique moderne, chaleureux et naturel.`,
+            medieval: `Tu es VRLingo, un professeur de langues expert, patient et motivant.\nObjectif principal : aider l'utilisateur à pratiquer le français de façon active.\nRègles strictes :\n- La langue de pratique est déjà définie par l'application : français.\n- N'interroge jamais l'utilisateur sur la langue à pratiquer.\n- Utilise principalement le français dans toutes tes réponses.\n- Si l'utilisateur parle dans une autre langue, reformule sa phrase en français, puis continue en français.\n- Corrige les erreurs importantes avec bienveillance et exemples courts.\n- Donne des réponses claires, naturelles et utiles pour une vraie conversation.\n- Pose régulièrement une question pour maintenir l'échange.\n- Évite les explications longues sauf demande explicite de l'utilisateur.\nContexte de style : médiéval.\nAdopte un ton évocateur médiéval (courtois, imagé, chevaleresque) sans nuire à la clarté.\nLe rôle pédagogique reste prioritaire au style.`
+          },
+          en: {
+            classic: `You are VRLingo, an expert, patient and motivating language teacher.\nMain goal: help the user practice English actively.\nStrict rules:\n- The practice language is already set by the app: English.\n- Never ask the user which language to practice.\n- Use mainly English in all your answers.\n- If the user speaks in another language, rephrase their sentence in English, then continue in English.\n- Correct important mistakes kindly, with short examples.\n- Give clear, natural and useful answers for real conversation.\n- Regularly ask a question to keep the exchange going.\n- Avoid long explanations unless the user asks.\nClassic mode: modern, warm and natural teaching style.`,
+            medieval: `You are VRLingo, an expert, patient and motivating language teacher.\nMain goal: help the user practice English actively.\nStrict rules:\n- The practice language is already set by the app: English.\n- Never ask the user which language to practice.\n- Use mainly English in all your answers.\n- If the user speaks in another language, rephrase their sentence in English, then continue in English.\n- Correct important mistakes kindly, with short examples.\n- Give clear, natural and useful answers for real conversation.\n- Regularly ask a question to keep the exchange going.\n- Avoid long explanations unless the user asks.\nMedieval context: adopt an evocative medieval tone (courteous, poetic, chivalrous) without harming clarity.\nTeaching role remains the priority.`
+          },
+          it: {
+            classic: `Sei VRLingo, un insegnante di lingue esperto, paziente e motivante.\nObiettivo principale: aiutare l'utente a praticare l'italiano in modo attivo.\nRegole rigide:\n- La lingua di pratica è già definita dall'applicazione: italiano.\n- Non chiedere mai all'utente quale lingua vuole praticare.\n- Usa principalmente l'italiano in tutte le tue risposte.\n- Se l'utente parla in un'altra lingua, riformula la sua frase in italiano, poi continua in italiano.\n- Correggi gli errori importanti con gentilezza e brevi esempi.\n- Dai risposte chiare, naturali e utili per una vera conversazione.\n- Fai regolarmente una domanda per mantenere lo scambio.\n- Evita spiegazioni lunghe a meno che l'utente non le chieda.\nModalità classica: stile didattico moderno, caloroso e naturale.`,
+            medieval: `Sei VRLingo, un insegnante di lingue esperto, paziente e motivante.\nObiettivo principale: aiutare l'utente a praticare l'italiano in modo attivo.\nRegole rigide:\n- La lingua di pratica è già definita dall'applicazione: italiano.\n- Non chiedere mai all'utente quale lingua vuole praticare.\n- Usa principalmente l'italiano in tutte le tue risposte.\n- Se l'utente parla in un'altra lingua, riformula la sua frase in italiano, poi continua in italiano.\n- Correggi gli errori importanti con gentilezza e brevi esempi.\n- Dai risposte chiare, naturali e utili per una vera conversazione.\n- Fai regolarmente una domanda per mantenere lo scambio.\n- Evita spiegazioni lunghe a meno che l'utente non le chieda.\nContesto medievale: adotta un tono evocativo medievale (cortese, poetico, cavalleresco) senza compromettere la chiarezza.\nIl ruolo didattico resta prioritario.`
+          },
+          de: {
+            classic: `Du bist VRLingo, ein erfahrener, geduldiger und motivierender Sprachlehrer.\nHauptziel: Dem Nutzer helfen, aktiv Deutsch zu üben.\nStrenge Regeln:\n- Die Übungssprache ist bereits durch die App festgelegt: Deutsch.\n- Frage den Nutzer niemals, welche Sprache er üben möchte.\n- Verwende hauptsächlich Deutsch in allen deinen Antworten.\n- Wenn der Nutzer in einer anderen Sprache spricht, formuliere seinen Satz auf Deutsch um und fahre dann auf Deutsch fort.\n- Korrigiere wichtige Fehler freundlich und mit kurzen Beispielen.\n- Gib klare, natürliche und hilfreiche Antworten für echte Gespräche.\n- Stelle regelmäßig eine Frage, um den Austausch aufrechtzuerhalten.\n- Vermeide lange Erklärungen, es sei denn, der Nutzer bittet darum.\nKlassischer Modus: moderner, herzlicher und natürlicher Unterrichtsstil.`,
+            medieval: `Du bist VRLingo, ein erfahrener, geduldiger und motivierender Sprachlehrer.\nHauptziel: Dem Nutzer helfen, aktiv Deutsch zu üben.\nStrenge Regeln:\n- Die Übungssprache ist bereits durch die App festgelegt: Deutsch.\n- Frage den Nutzer niemals, welche Sprache er üben möchte.\n- Verwende hauptsächlich Deutsch in allen deinen Antworten.\n- Wenn der Nutzer in einer anderen Sprache spricht, formuliere seinen Satz auf Deutsch um und fahre dann auf Deutsch fort.\n- Korrigiere wichtige Fehler freundlich und mit kurzen Beispielen.\n- Gib klare, natürliche und hilfreiche Antworten für echte Gespräche.\n- Stelle regelmäßig eine Frage, um den Austausch aufrechtzuerhalten.\n- Vermeide lange Erklärungen, es sei denn, der Nutzer bittet darum.\nMittelalterlicher Kontext: Verwende einen mittelalterlich anmutenden Ton (höflich, poetisch, ritterlich), ohne die Klarheit zu beeinträchtigen.\nDie pädagogische Rolle bleibt vorrangig.`
+          }
+        };
+    // Mapping phrase de bootstrap traduite (clé = code langue normalisé)
+    const BOOTSTRAP_PHRASES: Record<string, string> = {
+      fr: 'Bonjour et bienvenue ! Aujourd\'hui, nous allons pratiquer le français ensemble. Pour commencer, pourrais-tu te présenter en une phrase ?',
+      en: 'Hello and welcome! Today, we will practice English together. To start, could you introduce yourself in one sentence?',
+      it: 'Ciao e benvenuto! Oggi praticheremo l\'italiano insieme. Per cominciare, potresti presentarti in una frase?',
+      de: 'Hallo und herzlich willkommen! Heute üben wir gemeinsam Deutsch. Magst du dich zu Beginn in einem Satz vorstellen?',
+    };
+
+    // Normalise vers une clé canonique strictement supportée: fr | en | it | de
+    function normalizeLangCode(code?: string): string {
+      if (!code) return '';
+
+      const normalized = code.trim().toLowerCase().replace('_', '-');
+      const base = normalized.split('-')[0];
+
+      if (base === 'fr' || normalized === 'français') return 'fr';
+      if (base === 'en' || normalized === 'anglais') return 'en';
+      if (base === 'it' || normalized === 'italien') return 'it';
+      if (base === 'de' || normalized === 'allemand') return 'de';
+
+      return '';
+    }
+
   const conversationService = new ConversationService(fastify.prisma);
 
   fastify.get('/connect-info', {
@@ -59,10 +103,11 @@ const realtimeRoutes: FastifyPluginAsync = async (fastify) => {
 ### 🔌 Realtime Audio WebSocket
 
 To start a conversation, connect via WebSocket to:
-\`ws://{host}/api/realtime/session?lang={code}\`
+\`ws://{host}/api/realtime/session?lang={code}&context={context}\`
 
 **Parameters:**
-- \`lang\` (Required): Target language code (e.g. 'it-IT', 'en-US')
+- \`lang\` (Required): Target language code (must be one of: 'fr', 'en', 'it', 'de')
+- \`context\` (Optional): Conversation style context. For now: 'medieval'
 - \`Authorization\`: Bearer Token (JWT)
 
 **Protocol:**
@@ -86,15 +131,21 @@ To start a conversation, connect via WebSocket to:
   const schema: FastifySchema = {
     summary: 'Realtime AI Conversation Session',
     description:
-      'Establishes a WebSocket connection for realtime audio/text conversation with OpenAI. Requires `ws://` or `wss://` protocol. The connection uses the OpenAI Realtime API.',
+      'Establishes a WebSocket connection for realtime audio/text conversation with OpenAI. Requires `ws://` or `wss://` protocol. The connection uses the OpenAI Realtime API.\n\nOnly the following language codes are accepted: fr, en, it, de.',
     tags: ['realtime', 'ai'],
     security: [{ bearerAuth: [] }],
     querystring: z.object({
       lang: z
-        .string()
+        .enum(['fr', 'en', 'it', 'de'])
         .optional()
         .describe(
-          'Target language code (e.g., "it-IT", "en-US"). Defaults to "en-US".'
+          'Target language code (must be one of: fr, en, it, de). Defaults to "en".'
+        ),
+      context: z
+        .enum(['medieval'])
+        .optional()
+        .describe(
+          'Optional style context. When set to "medieval", the assistant uses medieval phrasing.'
         ),
     }),
     response: {
@@ -112,11 +163,28 @@ To start a conversation, connect via WebSocket to:
       // @ts-ignore
       const userId = request.user.sub as string;
 
-      const query = request.query as { lang?: string };
-      const targetLang = query.lang || 'en-US';
+      const query = request.query as {
+        lang?: string;
+        context?: RealtimeConversationContext;
+      };
+      const targetLang = query.lang || 'en';
+      const normLang = normalizeLangCode(targetLang);
+      const supportedLangs = ['fr', 'en', 'it', 'de'];
+      if (!supportedLangs.includes(normLang)) {
+        socket.close(4000, `Langue non supportée: ${targetLang}`);
+        fastify.log.warn({ userId, targetLang, normLang }, 'Langue non supportée, connexion refusée');
+        return;
+      }
+      const conversationContext = query.context;
+      const isMedievalContext = conversationContext === 'medieval';
 
       fastify.log.info(
-        { userId, targetLang, model: REALTIME_LIMITS.MODEL },
+        {
+          userId,
+          targetLang,
+          conversationContext: conversationContext || 'classic',
+          model: REALTIME_LIMITS.MODEL,
+        },
         'Realtime session initiating...'
       );
 
@@ -138,6 +206,11 @@ To start a conversation, connect via WebSocket to:
 
       let isSessionActive = false;
       let currentConversationId: string | null = null;
+      let hasSentBootstrapResponse = false;
+      let hasInitialTurnStarted = false;
+      let bootstrapRetryCount = 0;
+      let bootstrapFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+      let bootstrapRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
       /**
        * Why these maps?
@@ -198,6 +271,131 @@ To start a conversation, connect via WebSocket to:
         }
       };
 
+      const buildSessionInstructions = (): string => {
+        const langKey = normalizeLangCode(targetLang);
+        const supportedLangs = ['fr', 'en', 'it', 'de'];
+        const effectiveLang = supportedLangs.includes(langKey) ? langKey : 'fr';
+        if (isMedievalContext) {
+          return SESSION_INSTRUCTIONS[effectiveLang].medieval;
+        }
+        return SESSION_INSTRUCTIONS[effectiveLang].classic;
+      };
+
+      const buildBootstrapPrompt = (): string => {
+        const langKey = normalizeLangCode(targetLang);
+        const supportedLangs = ['fr', 'en', 'it', 'de'];
+        const effectiveLang = supportedLangs.includes(langKey) ? langKey : 'fr';
+        fastify.log.info({ targetLang, langKey, effectiveLang, context: isMedievalContext ? 'medieval' : 'classic' }, '[BOOTSTRAP] Prompt language');
+        // Traduction native de l'instruction "Dis EXACTEMENT cette phrase, sans rien ajouter" pour chaque langue
+        const SAY_EXACTLY: Record<string, string> = {
+          fr: 'Dis EXACTEMENT cette phrase, sans rien ajouter :',
+          en: 'Say EXACTLY this sentence, and nothing else:',
+          it: 'Pronuncia ESATTAMENTE questa frase, senza aggiungere altro:',
+          de: 'Sage GENAU diesen Satz, und nichts weiter:',
+        };
+        const DONT_SAY_MORE: Record<string, string> = {
+          fr: 'Ne dis rien d\'autre.',
+          en: 'Say nothing else.',
+          it: 'Non dire nient\'altro.',
+          de: 'Sage sonst nichts.',
+        };
+        if (isMedievalContext) {
+          const medievalPhrases: Record<string, string> = {
+            fr: 'Salutations, noble voyageur ! En cette journée, nous converserons en français. Pourrais-tu, en une phrase, révéler qui tu es ?',
+            en: 'Greetings, noble traveler! On this day, we shall converse in English. Would you, in one sentence, reveal who you are?',
+            it: 'Saluti, nobile viaggiatore! Oggi converseremo in italiano. Potresti, in una frase, raccontare chi sei?',
+            de: 'Seid gegrüßt, edler Reisender! Heute werden wir auf Deutsch sprechen. Würdest du dich zu Beginn in einem Satz vorstellen?'
+          };
+          return `${SAY_EXACTLY[effectiveLang]}\n"${medievalPhrases[effectiveLang]}"\n${DONT_SAY_MORE[effectiveLang]}`;
+        }
+        return `${SAY_EXACTLY[effectiveLang]}\n"${BOOTSTRAP_PHRASES[effectiveLang]}"\n${DONT_SAY_MORE[effectiveLang]}`;
+      };
+
+      const clearBootstrapTimers = () => {
+        if (bootstrapFallbackTimer) {
+          clearTimeout(bootstrapFallbackTimer);
+          bootstrapFallbackTimer = null;
+        }
+
+        if (bootstrapRetryTimer) {
+          clearTimeout(bootstrapRetryTimer);
+          bootstrapRetryTimer = null;
+        }
+      };
+
+      const sendBootstrapResponse = (force = false) => {
+        if (hasInitialTurnStarted) {
+          clearBootstrapTimers();
+          return;
+        }
+
+        if (!force && hasSentBootstrapResponse) return;
+
+        hasSentBootstrapResponse = true;
+
+        const bootstrapResponse = {
+          type: 'response.create',
+          response: {
+            conversation: 'none',
+            modalities: ['text', 'audio'],
+            instructions: buildBootstrapPrompt(),
+            max_output_tokens: 512,
+            temperature: 0.6,
+          },
+        };
+
+        openAIWs.send(JSON.stringify(bootstrapResponse));
+        fastify.log.info(
+          {
+            targetLang,
+            conversationContext: conversationContext || 'classic',
+            forcedRetry: force,
+            retryCount: bootstrapRetryCount,
+          },
+          'Bootstrap response requested (assistant should speak first)'
+        );
+      };
+
+      const scheduleBootstrapRetry = () => {
+        if (bootstrapRetryTimer) {
+          clearTimeout(bootstrapRetryTimer);
+        }
+
+        bootstrapRetryTimer = setTimeout(() => {
+          if (hasInitialTurnStarted) {
+            clearBootstrapTimers();
+            return;
+          }
+
+          if (bootstrapRetryCount >= 2) {
+            fastify.log.warn(
+              {
+                targetLang,
+                conversationContext: conversationContext || 'classic',
+              },
+              'No initial assistant turn detected after bootstrap retries'
+            );
+            clearBootstrapTimers();
+            return;
+          }
+
+          bootstrapRetryCount += 1;
+          sendBootstrapResponse(true);
+          scheduleBootstrapRetry();
+        }, 5000);
+      };
+
+      const scheduleBootstrapFallback = () => {
+        if (bootstrapFallbackTimer) {
+          clearTimeout(bootstrapFallbackTimer);
+        }
+
+        bootstrapFallbackTimer = setTimeout(() => {
+          sendBootstrapResponse();
+          scheduleBootstrapRetry();
+        }, 600);
+      };
+
       openAIWs.on('open', () => {
         fastify.log.info('✅ Connected to OpenAI Realtime API');
       });
@@ -212,12 +410,7 @@ To start a conversation, connect via WebSocket to:
               type: 'session.update',
               session: {
                 modalities: ['text', 'audio'],
-                instructions: `Tu es VRLingo, un professeur de langues expert.
-L'utilisateur souhaite pratiquer la langue suivante : ${targetLang}.
-Détecte automatiquement si l'utilisateur parle cette langue ou sa langue maternelle, puis adapte ta réponse.
-Si l'utilisateur s'exprime dans sa langue maternelle, aide-le à reformuler dans la langue cible (${targetLang}).
-Corrige les erreurs importantes de manière bienveillante.
-Réponds principalement dans la langue cible (${targetLang}), sauf si une explication courte dans une autre langue est nécessaire.`,
+                instructions: buildSessionInstructions(),
                 voice: 'alloy',
                 input_audio_format: 'pcm16',
                 output_audio_format: 'pcm16',
@@ -231,11 +424,21 @@ Réponds principalement dans la langue cible (${targetLang}), sauf si une explic
             };
 
             openAIWs.send(JSON.stringify(sessionConfig));
+            scheduleBootstrapFallback();
+
             isSessionActive = true;
             fastify.log.info(
-              { targetLang, transcriptionModel: 'gpt-4o-mini-transcribe' },
+              {
+                targetLang,
+                conversationContext: conversationContext || 'classic',
+                transcriptionModel: 'gpt-4o-mini-transcribe',
+              },
               '✨ Session initialized and configured'
             );
+          }
+
+          if (event.type === 'session.updated') {
+            sendBootstrapResponse();
           }
 
           // Relay everything to the VR client so the frontend stays fully event-driven.
@@ -246,10 +449,20 @@ Réponds principalement dans la langue cible (${targetLang}), sauf si une explic
 
           // Track user audio commits so we can associate later transcript events with a turn.
           if (event.type === 'input_audio_buffer.committed' && event.item_id) {
+            hasInitialTurnStarted = true;
+            clearBootstrapTimers();
             rememberCommittedUserItem(event.item_id);
             if (!pendingTranscriptByItemId.has(event.item_id)) {
               pendingTranscriptByItemId.set(event.item_id, '');
             }
+          }
+
+          if (
+            event.type === 'response.audio.delta' ||
+            event.type === 'response.audio_transcript.delta'
+          ) {
+            hasInitialTurnStarted = true;
+            clearBootstrapTimers();
           }
 
           // Incremental user transcript stream.
@@ -311,6 +524,8 @@ Réponds principalement dans la langue cible (${targetLang}), sauf si une explic
           }
 
           if (event.type === 'response.done') {
+            hasInitialTurnStarted = true;
+            clearBootstrapTimers();
             sessionGuard.incrementTurn();
             const response = event.response;
             const { itemId: persistedUserItemId, transcript: userTranscript } =
@@ -360,15 +575,6 @@ Réponds principalement dans la langue cible (${targetLang}), sauf si une explic
                 },
                 'OpenAI Realtime response completed'
               );
-
-              // --- Ajout de la question utilisateur dans la réponse envoyée au client ---
-              if (socket.readyState === WebSocket.OPEN) {
-                const enrichedEvent = {
-                  ...event,
-                  user_transcript: transcriptForTurn,
-                };
-                socket.send(JSON.stringify(enrichedEvent));
-              }
 
               try {
                 const result = await conversationService.logRealtimeTurn(
@@ -457,10 +663,12 @@ Réponds principalement dans la langue cible (${targetLang}), sauf si une explic
 
       socket.on('close', () => {
         fastify.log.info({ userId }, 'Client VR disconnected');
+        clearBootstrapTimers();
         if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
       });
 
       openAIWs.on('close', (code, reason) => {
+        clearBootstrapTimers();
         fastify.log.info(
           { code, reason: reason.toString() },
           'OpenAI connection closed'

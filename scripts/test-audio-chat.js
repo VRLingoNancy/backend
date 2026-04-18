@@ -13,9 +13,77 @@ const SAMPLE_RATE = '24000';   // 24kHz
 const CHANNELS = '1';          // Mono
 const AUDIO_DEVICE = process.env.AUDIO_DEVICE; // ex: "plughw:1,0"
 
+async function askTargetLanguage() {
+  // Liste stricte des langues supportées (codes courts)
+  const supportedLangs = [
+    { code: 'fr', label: 'français' },
+    { code: 'en', label: 'anglais' },
+    { code: 'it', label: 'italien' },
+    { code: 'de', label: 'allemand' },
+  ];
+
+  console.log('Langues disponibles :');
+  supportedLangs.forEach((l, i) => {
+    console.log(`  ${i + 1}. ${l.label} (${l.code})`);
+  });
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise((resolve) => {
+    rl.question(
+      'Choisissez la langue cible (1-4 ou code court, ex: fr) [1] : ',
+      (value) => resolve((value || '').trim())
+    );
+  });
+
+  rl.close();
+  if (!answer || answer === '1') return 'fr';
+  if (answer === '2') return 'en';
+  if (answer === '3') return 'it';
+  if (answer === '4') return 'de';
+  // Si l'utilisateur tape un code personnalisé, on ne garde que fr/en/it/de
+  if (['fr', 'en', 'it', 'de'].includes(answer)) return answer;
+  console.error('Langue non supportée. Choisissez fr, en, it ou de.');
+  process.exit(1);
+}
+
+async function askConversationMode() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise((resolve) => {
+    rl.question(
+      'Mode de conversation ? (1 = professeur classique, 2 = professeur medieval) : ',
+      (value) => resolve((value || '').trim())
+    );
+  });
+
+  rl.close();
+
+  if (answer === '2') {
+    return 'medieval';
+  }
+
+  return null;
+}
+
 async function main() {
   console.log('🎤 VRLingo Audio Terminal Client');
   console.log('--------------------------------');
+
+  const targetLang = await askTargetLanguage();
+  const selectedContext = await askConversationMode();
+  console.log(`🌐 Langue sélectionnée (UI): ${targetLang}`);
+  if (selectedContext === 'medieval') {
+    console.log('🏰 Mode sélectionné: professeur médiéval');
+  } else {
+    console.log('📘 Mode sélectionné: professeur classique');
+  }
 
   // 1. LOGIN
   console.log(`📡 Authentification pour ${EMAIL}...`);
@@ -41,8 +109,12 @@ async function main() {
   console.log('✅ Token récupéré:', token.substring(0, 10) + '...');
 
   // 2. CONNECTION WEBSOCKET
-  // On passe le code langue Italien pour tester la transcription multilingue
-  const wsUrl = API_URL.replace('http', 'ws') + '/api/realtime/session?lang=fr-FR';
+  const wsQuery = new URLSearchParams({ lang: targetLang });
+  if (selectedContext) {
+    wsQuery.set('context', selectedContext);
+  }
+  const wsUrl =
+    API_URL.replace('http', 'ws') + `/api/realtime/session?${wsQuery.toString()}`;
   console.log(`🔌 Connexion au WebSocket: ${wsUrl}`);
   
   // Clean token just in case
@@ -108,10 +180,75 @@ async function main() {
   let isAiSpeaking = false;
   let silenceTimer = null;
   let latestUserTranscript = '';
+  let waitForFirstAssistantTurn = true;
+  let firstTurnWatchdogInterval = null;
+  let firstTurnRetryCount = 0;
+
+  function buildClientOpeningPrompt() {
+    if (selectedContext === 'medieval') {
+      return `Commence maintenant. Accueille l'utilisateur en ${targetLang} avec un ton medieval, puis pose UNE question simple pour lancer l'echange.`;
+    }
+
+    return `Commence maintenant. Accueille l'utilisateur en ${targetLang}, puis pose UNE question simple pour lancer l'echange.`;
+  }
+
+  function requestOpeningTurnFromClient() {
+    if (ws.readyState !== WebSocket.OPEN || !waitForFirstAssistantTurn) {
+      return;
+    }
+
+    const event = {
+      type: 'response.create',
+      response: {
+        modalities: ['text', 'audio'],
+        instructions: buildClientOpeningPrompt(),
+        max_output_tokens: 64,
+        temperature: 0.6,
+      },
+    };
+
+    ws.send(JSON.stringify(event));
+  }
+
+  function startFirstTurnWatchdog() {
+    if (firstTurnWatchdogInterval) {
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+    }
+
+    firstTurnRetryCount = 0;
+
+    // On garde le micro verrouillé tant que l'IA n'a pas commencé son premier tour.
+    // Si aucun son n'arrive, on relance explicitement response.create avant d'abandonner.
+    firstTurnWatchdogInterval = setInterval(() => {
+      if (!waitForFirstAssistantTurn) {
+        clearInterval(firstTurnWatchdogInterval);
+        firstTurnWatchdogInterval = null;
+        return;
+      }
+
+      if (firstTurnRetryCount < 3) {
+        firstTurnRetryCount += 1;
+        console.log(
+          `ℹ️ Tour initial IA non detecte, relance ${firstTurnRetryCount}/3...`
+        );
+        requestOpeningTurnFromClient();
+        return;
+      }
+
+      waitForFirstAssistantTurn = false;
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+      console.log(
+        '⚠️ Impossible de déclencher un tour initial IA automatiquement. Micro réactivé en secours.'
+      );
+    }, 5000);
+  }
 
   ws.on('open', () => {
-    console.log('✅ Connecté ! L\'IA t\'écoute (Server VAD actif). Parle...');
+    console.log('✅ Connecté ! L\'IA va démarrer en premier...');
     console.log('🔴 Enregistrement micro actif (CTRL+C pour quitter)');
+    startFirstTurnWatchdog();
   });
 
   ws.on('message', (data) => {
@@ -126,18 +263,33 @@ async function main() {
         latestUserTranscript = event.transcript.trim();
       }
 
+      // Dès qu'un signal IA est reçu (audio, transcript ou done), on désactive le watchdog immédiatement pour éviter tout doublon
+      if (
+        event.type === 'response.done' ||
+        (event.type === 'response.audio.delta' && event.delta) ||
+        (event.type === 'response.audio_transcript.delta' && event.delta)
+      ) {
+        if (waitForFirstAssistantTurn) {
+          waitForFirstAssistantTurn = false;
+          if (firstTurnWatchdogInterval) {
+            clearInterval(firstTurnWatchdogInterval);
+            firstTurnWatchdogInterval = null;
+          }
+        }
+      }
+
       // Log uniquement les tours enrichis côté backend
       if (event.type === 'response.done') {
         process.stdout.write('\n');
         isAiSpeaking = false;
         if (silenceTimer) clearTimeout(silenceTimer);
-        // Log question/réponse
-        const userQuestion =
+        // Log entrée utilisateur/réponse
+        const userInput =
           (typeof event.user_transcript === 'string' && event.user_transcript.trim()) ||
           latestUserTranscript ||
-          '(inconnue)';
+          '(tour d\'ouverture: aucune entrée utilisateur)';
 
-        console.log('\n[IA LOG] Question comprise :', userQuestion);
+        console.log('\n[IA LOG] Entrée utilisateur :', userInput);
         let iaText = '';
         if (event.response && event.response.output) {
           event.response.output.forEach((item) => {
@@ -154,7 +306,6 @@ async function main() {
         latestUserTranscript = '';
       }
 
-      // ...existing code...
       if (event.type === 'response.audio.delta' && event.delta) {
         isAiSpeaking = true;
         if (silenceTimer) clearTimeout(silenceTimer);
@@ -172,6 +323,9 @@ async function main() {
       if (event.type === 'response.audio_transcript.delta' && event.delta) {
         process.stdout.write(event.delta);
       }
+      if (event.type === 'error') {
+        console.error('\n[Realtime Error Event]', JSON.stringify(event, null, 2));
+      }
       if (event.type === 'input_audio_buffer.speech_started') {
         console.log('\n[User started speaking...]');
         console.log('⚡ Interruption détectée (Purger Audio Output)...');
@@ -187,6 +341,10 @@ async function main() {
 
   ws.on('error', (e) => console.error('WS Error:', e));
   ws.on('close', () => {
+    if (firstTurnWatchdogInterval) {
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+    }
     console.log('Session fermée.');
     process.exit(0);
   });
@@ -195,6 +353,10 @@ async function main() {
 
   const CHUNK_SIZE = 4096; // Envoyer par petits paquets
   recorder.stdout.on('data', (chunk) => {
+    if (waitForFirstAssistantTurn) {
+      return;
+    }
+
     // PROTECTION ANTI-ECHO : Si l'IA parle, on coupe le micro logiciel
     if (isAiSpeaking) {
         return;
@@ -225,6 +387,10 @@ async function main() {
   // Gestion de l'arrêt
   process.on('SIGINT', () => {
     console.log('\nArrêt...');
+    if (firstTurnWatchdogInterval) {
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+    }
     recorder.kill();
     if (player) player.kill();
     ws.close();
