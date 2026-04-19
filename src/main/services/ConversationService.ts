@@ -78,11 +78,85 @@ export class ConversationService {
         0,
         10000
       ); // Limite la taille
-      const match = text.match(/\{[\s\S]*?\}/); // Regex non-gourmande (lazy)
-      if (!match) throw new Error('No JSON found in response');
-      const parsed = JSON.parse(match[0]);
-      aiScore = Number(parsed.score);
-      aiFeedback = String(parsed.appreciation);
+
+      const extractFirstJsonObject = (input: string): string | null => {
+        const startIndex = input.indexOf('{');
+        if (startIndex === -1) return null;
+
+        let depth = 0;
+        let inString = false;
+        let isEscaped = false;
+
+        for (let index = startIndex; index < input.length; index += 1) {
+          const ch = input[index];
+
+          if (inString) {
+            if (isEscaped) {
+              isEscaped = false;
+              continue;
+            }
+            if (ch === '\\') {
+              isEscaped = true;
+              continue;
+            }
+            if (ch === '"') {
+              inString = false;
+            }
+            continue;
+          }
+
+          if (ch === '"') {
+            inString = true;
+            continue;
+          }
+
+          if (ch === '{') {
+            depth += 1;
+            continue;
+          }
+
+          if (ch === '}') {
+            depth -= 1;
+            if (depth === 0) {
+              return input.slice(startIndex, index + 1);
+            }
+            if (depth < 0) {
+              return null;
+            }
+          }
+        }
+
+        return null;
+      };
+
+      const jsonText = extractFirstJsonObject(text);
+      if (!jsonText) throw new Error('No JSON found in response');
+
+      const parsed: unknown = JSON.parse(jsonText);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('AI JSON is not an object');
+      }
+
+      const record = parsed as Record<string, unknown>;
+      const scoreValue = record.score;
+      const appreciationValue = record.appreciation;
+
+      if (
+        scoreValue === undefined ||
+        (typeof scoreValue !== 'number' && typeof scoreValue !== 'string')
+      ) {
+        throw new Error('AI JSON missing valid score');
+      }
+      if (
+        appreciationValue === undefined ||
+        (typeof appreciationValue !== 'string' &&
+          typeof appreciationValue !== 'number')
+      ) {
+        throw new Error('AI JSON missing valid appreciation');
+      }
+
+      aiScore = Number(scoreValue);
+      aiFeedback = String(appreciationValue);
     } catch (err) {
       throw new ConversationServiceError(
         'Failed to parse AI feedback: ' + (err as Error).message,
