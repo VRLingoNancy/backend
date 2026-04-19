@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { ConversationServiceError } from '../errors/ConversationServiceError';
+import { OpenAIService } from './OpenAIService';
 
 // Tarifs approximatifs (en USD pour 1000 tokens) basés sur les prix Audio Realtime (Oct 2024)
 // On prend le tarif "Audio" car c'est le mode principal, pour ne pas sous-estimer.
@@ -11,8 +12,68 @@ const PRICING_RATES: Record<string, { prompt: number; completion: number }> = {
   default: { prompt: 0.01, completion: 0.03 }, // Fallback
 };
 
+interface OpenAIChatCompletion {
+  choices: Array<{
+    message: { content: string }
+  }>;
+  // ... autres champs si besoin
+}
+
 export class ConversationService {
   constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Analyse une conversation avec l'IA, stocke le score et l'appréciation dans la base.
+   * @param conversationId string
+   * @returns { aiScore: number, aiFeedback: string }
+   */
+  async scoreConversationWithAI(conversationId: string): Promise<{ aiScore: number; aiFeedback: string }> {
+    // 1. Récupérer tous les messages de la conversation (ordre chronologique)
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!conversation) throw new ConversationServiceError('Conversation not found', 404);
+    if (!conversation.messages.length) throw new ConversationServiceError('No messages in conversation', 400);
+
+    // 2. Formater le prompt pour l'IA
+    const dialogue = conversation.messages.map(m => `- ${m.sender === 'USER' ? 'Utilisateur' : 'IA'}: ${m.content}`).join('\n');
+    const prompt = `Voici une conversation entre un utilisateur et une intelligence artificielle pour pratiquer une langue.\n\n${dialogue}\n\nDonne une évaluation pédagogique de cette conversation.\nRéponds uniquement au format JSON strict suivant : {\n  \\"score\\": <nombre entre 0 et 100>,\n  \\"appreciation\\": <texte synthétique d'appréciation pédagogique>\n}`;
+
+    // 3. Appeler OpenAI
+    const openai = new OpenAIService();
+    const completion = await openai.chatCompletion({
+      messages: [
+        { role: 'system', content: 'Tu es un expert en pédagogie des langues.' },
+        { role: 'user', content: prompt },
+      ],
+      model: 'gpt-4o',
+      temperature: 0.2,
+      max_tokens: 512,
+    });
+
+    // 4. Extraire le JSON de la réponse
+    let aiScore = 0;
+    let aiFeedback = '';
+    try {
+      const text = completion.choices?.[0]?.message?.content || '';
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('No JSON found in response');
+      const parsed = JSON.parse(match[0]);
+      aiScore = Number(parsed.score);
+      aiFeedback = String(parsed.appreciation);
+    } catch (err) {
+      throw new ConversationServiceError('Failed to parse AI feedback: ' + (err as Error).message, 500);
+    }
+
+    // 5. Mettre à jour la conversation
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { aiScore, aiFeedback },
+    });
+
+    return { aiScore, aiFeedback };
+  }
 
   /**
    * Enregistre un tour de parole (User + AI) généré par l'API Realtime.
