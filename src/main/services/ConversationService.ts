@@ -27,7 +27,7 @@ export class ConversationService {
    * @param conversationId string
    * @returns { aiScore: number, aiFeedback: string }
    */
-  async scoreConversationWithAI(conversationId: string): Promise<{ aiScore: number; aiFeedback: string }> {
+  async scoreConversationWithAI(conversationId: string): Promise<{ aiScore: number; aiFeedback: string; isNewScore: boolean }> {
     // 1. Récupérer tous les messages de la conversation (ordre chronologique)
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -35,6 +35,16 @@ export class ConversationService {
     });
     if (!conversation) throw new ConversationServiceError('Conversation not found', 404);
     if (!conversation.messages.length) throw new ConversationServiceError('No messages in conversation', 400);
+
+    // Si le score existe déjà, on le renvoie directement
+    if (conversation.aiScore !== null && conversation.aiScore !== undefined &&
+        conversation.aiFeedback !== null && conversation.aiFeedback !== undefined) {
+      return {
+        aiScore: conversation.aiScore,
+        aiFeedback: conversation.aiFeedback,
+        isNewScore: false,
+      };
+    }
 
     // 2. Formater le prompt pour l'IA
     const dialogue = conversation.messages.map(m => `- ${m.sender === 'USER' ? 'Utilisateur' : 'IA'}: ${m.content}`).join('\n');
@@ -72,7 +82,7 @@ export class ConversationService {
       data: { aiScore, aiFeedback },
     });
 
-    return { aiScore, aiFeedback };
+    return { aiScore, aiFeedback, isNewScore: true };
   }
 
   /**
@@ -309,7 +319,25 @@ export class ConversationService {
    * @param conversationId L'ID de la conversation à récupérer.
    * @param userId L'ID de l'utilisateur qui fait la demande.
    */
-  async getById(conversationId: string, userId: string) {
+  /**
+   * Récupère une conversation par son ID (sans vérification d'utilisateur).
+   * @param conversationId L'ID de la conversation à récupérer.
+   */
+  async getById(conversationId: string) {
+    return this.prisma.conversation.findUnique({
+      where: {
+        id: conversationId,
+      },
+    });
+  }
+
+  /**
+   * Récupère une conversation par son ID, en s'assurant qu'elle appartient à l'utilisateur.
+   * Inclut tous les messages de la conversation, triés par date de création.
+   * @param conversationId L'ID de la conversation à récupérer.
+   * @param userId L'ID de l'utilisateur qui fait la demande.
+   */
+  async getByIdAndUser(conversationId: string, userId: string) {
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         id: conversationId,
