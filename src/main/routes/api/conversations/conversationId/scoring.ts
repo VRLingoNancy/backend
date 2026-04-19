@@ -58,13 +58,20 @@ const scoreConversationRoute: FastifyPluginAsync = async (fastify) => {
         }
         // Vérifie l'appartenance
         if (conversation.userId !== userId) {
-          throw new AuthorizationError('Not authorized to access this conversation', 403);
+          throw new AuthorizationError(
+            'Not authorized to access this conversation',
+            403
+          );
         }
 
-        const result = await conversationService.scoreConversationWithAI(conversationId);
+        const result =
+          await conversationService.scoreConversationWithAI(conversationId);
         return reply.code(200).send(result);
       } catch (err) {
-        if (err instanceof ConversationServiceError || err instanceof AuthorizationError) {
+        if (
+          err instanceof ConversationServiceError ||
+          err instanceof AuthorizationError
+        ) {
           return reply.code(err.statusCode).send({ error: err.message });
         }
         throw err;

@@ -12,13 +12,6 @@ const PRICING_RATES: Record<string, { prompt: number; completion: number }> = {
   default: { prompt: 0.01, completion: 0.03 }, // Fallback
 };
 
-interface OpenAIChatCompletion {
-  choices: Array<{
-    message: { content: string }
-  }>;
-  // ... autres champs si besoin
-}
-
 export class ConversationService {
   constructor(private prisma: PrismaClient) {}
 
@@ -27,18 +20,26 @@ export class ConversationService {
    * @param conversationId string
    * @returns { aiScore: number, aiFeedback: string }
    */
-  async scoreConversationWithAI(conversationId: string): Promise<{ aiScore: number; aiFeedback: string; isNewScore: boolean }> {
+  async scoreConversationWithAI(
+    conversationId: string
+  ): Promise<{ aiScore: number; aiFeedback: string; isNewScore: boolean }> {
     // 1. Récupérer tous les messages de la conversation (ordre chronologique)
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { messages: { orderBy: { createdAt: 'asc' } } },
     });
-    if (!conversation) throw new ConversationServiceError('Conversation not found', 404);
-    if (!conversation.messages.length) throw new ConversationServiceError('No messages in conversation', 400);
+    if (!conversation)
+      throw new ConversationServiceError('Conversation not found', 404);
+    if (!conversation.messages.length)
+      throw new ConversationServiceError('No messages in conversation', 400);
 
     // Si le score existe déjà, on le renvoie directement
-    if (conversation.aiScore !== null && conversation.aiScore !== undefined &&
-        conversation.aiFeedback !== null && conversation.aiFeedback !== undefined) {
+    if (
+      conversation.aiScore !== null &&
+      conversation.aiScore !== undefined &&
+      conversation.aiFeedback !== null &&
+      conversation.aiFeedback !== undefined
+    ) {
       return {
         aiScore: conversation.aiScore,
         aiFeedback: conversation.aiFeedback,
@@ -47,14 +48,21 @@ export class ConversationService {
     }
 
     // 2. Formater le prompt pour l'IA
-    const dialogue = conversation.messages.map(m => `- ${m.sender === 'USER' ? 'Utilisateur' : 'IA'}: ${m.content}`).join('\n');
+    const dialogue = conversation.messages
+      .map(
+        (m) => `- ${m.sender === 'USER' ? 'Utilisateur' : 'IA'}: ${m.content}`
+      )
+      .join('\n');
     const prompt = `Voici une conversation entre un utilisateur et une intelligence artificielle pour pratiquer une langue.\n\n${dialogue}\n\nDonne une évaluation pédagogique de cette conversation.\nRéponds uniquement au format JSON strict suivant : {\n  \\"score\\": <nombre entre 0 et 100>,\n  \\"appreciation\\": <texte synthétique d'appréciation pédagogique>\n}`;
 
     // 3. Appeler OpenAI
     const openai = new OpenAIService();
     const completion = await openai.chatCompletion({
       messages: [
-        { role: 'system', content: 'Tu es un expert en pédagogie des langues.' },
+        {
+          role: 'system',
+          content: 'Tu es un expert en pédagogie des langues.',
+        },
         { role: 'user', content: prompt },
       ],
       model: 'gpt-4o',
@@ -73,7 +81,10 @@ export class ConversationService {
       aiScore = Number(parsed.score);
       aiFeedback = String(parsed.appreciation);
     } catch (err) {
-      throw new ConversationServiceError('Failed to parse AI feedback: ' + (err as Error).message, 500);
+      throw new ConversationServiceError(
+        'Failed to parse AI feedback: ' + (err as Error).message,
+        500
+      );
     }
 
     // 5. Mettre à jour la conversation

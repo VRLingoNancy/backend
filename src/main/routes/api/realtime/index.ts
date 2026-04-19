@@ -7,7 +7,7 @@ import type { RealtimeConversationContext } from './realtime.types';
 import { RealtimeSessionService } from '../../../services/RealtimeSessionService';
 
 const realtimeRoutes: FastifyPluginAsync = async (fastify) => {
-        // Prompts (instructions système / bootstrap) et logique de langue extraits dans des modules dédiés.
+  // Prompts (instructions système / bootstrap) et logique de langue extraits dans des modules dédiés.
 
   const conversationService = new ConversationService(fastify.prisma);
 
@@ -84,9 +84,17 @@ To start a conversation, connect via WebSocket to:
       };
       const targetLang = query.lang || 'en';
       const conversationContext = query.context;
-      const realtimeSessionService = new RealtimeSessionService(fastify, conversationService);
+      const realtimeSessionService = new RealtimeSessionService(
+        fastify,
+        conversationService
+      );
 
-      realtimeSessionService.handleSession(socket, userId, targetLang, conversationContext);
+      realtimeSessionService.handleSession(
+        socket,
+        userId,
+        targetLang,
+        conversationContext
+      );
     }
   );
 };

@@ -2,15 +2,27 @@ import WebSocket from 'ws';
 import { FastifyInstance } from 'fastify';
 import { REALTIME_LIMITS, SessionGuard } from '../config/realtime-limits';
 import { ConversationService } from './ConversationService';
-import { isSupportedLang, normalizeLangCode } from '../routes/api/realtime/realtime.languages';
-import { getSessionInstructions, buildBootstrapPrompt } from '../routes/api/realtime/realtime.prompts';
-import type { RealtimeConversationContext, RealtimeEvent } from '../routes/api/realtime/realtime.types';
+import {
+  isSupportedLang,
+  normalizeLangCode,
+} from '../routes/api/realtime/realtime.languages';
+import {
+  getSessionInstructions,
+  buildBootstrapPrompt,
+} from '../routes/api/realtime/realtime.prompts';
+import type {
+  RealtimeConversationContext,
+  RealtimeEvent,
+} from '../routes/api/realtime/realtime.types';
 
 export class RealtimeSessionService {
   private fastify: FastifyInstance;
   private conversationService: ConversationService;
 
-  constructor(fastify: FastifyInstance, conversationService: ConversationService) {
+  constructor(
+    fastify: FastifyInstance,
+    conversationService: ConversationService
+  ) {
     this.fastify = fastify;
     this.conversationService = conversationService;
   }
@@ -24,7 +36,10 @@ export class RealtimeSessionService {
     const normLang = normalizeLangCode(targetLang);
     if (!isSupportedLang(normLang)) {
       socket.close(4000, `Langue non supportée: ${targetLang}`);
-      this.fastify.log.warn({ userId, targetLang, normLang }, 'Langue non supportée, connexion refusée');
+      this.fastify.log.warn(
+        { userId, targetLang, normLang },
+        'Langue non supportée, connexion refusée'
+      );
       return;
     }
     const effectiveLang = normLang;
@@ -298,8 +313,7 @@ export class RealtimeSessionService {
         }
 
         if (
-          event.type ===
-            'conversation.item.input_audio_transcription.failed' &&
+          event.type === 'conversation.item.input_audio_transcription.failed' &&
           event.item_id
         ) {
           this.fastify.log.warn(
@@ -337,7 +351,7 @@ export class RealtimeSessionService {
             const enrichedEvent = {
               ...event,
               user_transcript: transcriptForTurn,
-              conversation_id: currentConversationId
+              conversation_id: currentConversationId,
             };
             socket.send(JSON.stringify(enrichedEvent));
           }
@@ -387,9 +401,7 @@ export class RealtimeSessionService {
                   totalTokens: Number(usage.total_tokens || 0),
                   promptTextTokens: Number(inputDetails.text_tokens || 0),
                   promptAudioTokens: Number(inputDetails.audio_tokens || 0),
-                  completionTextTokens: Number(
-                    outputDetails.text_tokens || 0
-                  ),
+                  completionTextTokens: Number(outputDetails.text_tokens || 0),
                   completionAudioTokens: Number(
                     outputDetails.audio_tokens || 0
                   ),
@@ -423,7 +435,9 @@ export class RealtimeSessionService {
         try {
           JSON.parse(messageString);
         } catch {
-          this.fastify.log.warn('Ignoring non-JSON WebSocket payload from client');
+          this.fastify.log.warn(
+            'Ignoring non-JSON WebSocket payload from client'
+          );
           return;
         }
         if (openAIWs.readyState === WebSocket.OPEN) {

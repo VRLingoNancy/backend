@@ -1,7 +1,7 @@
 // Typage de la réponse OpenAI
 export interface OpenAIChatCompletion {
   choices: Array<{
-    message: { content: string }
+    message: { content: string };
   }>;
   // ... autres champs si besoin
 }
