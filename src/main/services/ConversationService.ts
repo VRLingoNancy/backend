@@ -74,8 +74,11 @@ export class ConversationService {
     let aiScore = 0;
     let aiFeedback = '';
     try {
-      const text = completion.choices?.[0]?.message?.content || '';
-      const match = text.match(/\{[\s\S]*\}/);
+      const text = (completion.choices?.[0]?.message?.content || '').slice(
+        0,
+        10000
+      ); // Limite la taille
+      const match = text.match(/\{[\s\S]*?\}/); // Regex non-gourmande (lazy)
       if (!match) throw new Error('No JSON found in response');
       const parsed = JSON.parse(match[0]);
       aiScore = Number(parsed.score);
