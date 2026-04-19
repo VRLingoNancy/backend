@@ -219,93 +219,108 @@ async function main() {
   ws.on('message', (data) => {
     try {
       const event = JSON.parse(data.toString());
-
-      // Fallback local: conserver la dernière transcription utilisateur finalisée.
-      if (
-        event.type === 'conversation.item.input_audio_transcription.completed' &&
-        typeof event.transcript === 'string'
-      ) {
-        latestUserTranscript = event.transcript.trim();
-      }
-
-      // Dès qu'un signal IA est reçu (audio, transcript ou done), on désactive le watchdog immédiatement pour éviter tout doublon
-      if (
-        event.type === 'response.done' ||
-        (event.type === 'response.audio.delta' && event.delta) ||
-        (event.type === 'response.audio_transcript.delta' && event.delta)
-      ) {
-        if (waitForFirstAssistantTurn) {
-          waitForFirstAssistantTurn = false;
-          if (firstTurnWatchdogInterval) {
-            clearInterval(firstTurnWatchdogInterval);
-            firstTurnWatchdogInterval = null;
-          }
-        }
-      }
-
-      // Log uniquement les tours enrichis côté backend
-      if (event.type === 'response.done') {
-        process.stdout.write('\n');
-        isAiSpeaking = false;
-        if (silenceTimer) clearTimeout(silenceTimer);
-        // Log entrée utilisateur/réponse
-        const userInput =
-          (typeof event.user_transcript === 'string' && event.user_transcript.trim()) ||
-          latestUserTranscript ||
-          '(tour d\'ouverture: aucune entrée utilisateur)';
-
-        // Log conversationId enrichi par le backend (peut être null)
-
-        let iaText = '';
-        if (event.response && event.response.output) {
-          event.response.output.forEach((item) => {
-            item.content?.forEach((contentPart) => {
-              if (typeof contentPart.transcript === 'string') {
-                iaText += contentPart.transcript;
-              } else if (typeof contentPart.text === 'string') {
-                iaText += contentPart.text;
-              }
-            });
-          });
-        }
-        console.log('\n[IA LOG] Entrée utilisateur :', userInput);
-        console.log('[IA LOG] Réponse IA :', iaText || '(aucune)');
-        console.log('[IA LOG] conversation_id :', event.conversation_id ?? null);
-        latestUserTranscript = '';
-      }
-
-      if (event.type === 'response.audio.delta' && event.delta) {
-        isAiSpeaking = true;
-        if (silenceTimer) clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => {
-            isAiSpeaking = false;
-        }, 1500);
-        try {
-            if (player && player.stdin && !player.stdin.destroyed && player.stdin.writable) {
-                player.stdin.write(Buffer.from(event.delta, 'base64'));
-            }
-        } catch (err) {
-            if (err.code !== 'EPIPE') console.error('Audio write error:', err);
-        }
-      }
-      if (event.type === 'response.audio_transcript.delta' && event.delta) {
-        process.stdout.write(event.delta);
-      }
-      if (event.type === 'error') {
-        console.error('\n[Realtime Error Event]', JSON.stringify(event, null, 2));
-      }
-      if (event.type === 'input_audio_buffer.speech_started') {
-        console.log('\n[User started speaking...]');
-        // console.log('⚡ Interruption détectée (Purger Audio Output)...');
-        startPlayer();
-        isAiSpeaking = false;
-        if (silenceTimer) clearTimeout(silenceTimer);
-      }
-      
+      handleUserTranscriptEvent(event);
+      handleAssistantTurnEvent(event);
+      handleResponseDoneEvent(event);
+      handleAudioDeltaEvent(event);
+      handleAudioTranscriptDeltaEvent(event);
+      handleErrorEvent(event);
+      handleSpeechStartedEvent(event);
     } catch (e) {
       console.error('Erreur parsing:', e);
     }
   });
+
+  function handleUserTranscriptEvent(event) {
+    if (
+      event.type === 'conversation.item.input_audio_transcription.completed' &&
+      typeof event.transcript === 'string'
+    ) {
+      latestUserTranscript = event.transcript.trim();
+    }
+  }
+
+  function handleAssistantTurnEvent(event) {
+    if (
+      event.type === 'response.done' ||
+      (event.type === 'response.audio.delta' && event.delta) ||
+      (event.type === 'response.audio_transcript.delta' && event.delta)
+    ) {
+      if (waitForFirstAssistantTurn) {
+        waitForFirstAssistantTurn = false;
+        if (firstTurnWatchdogInterval) {
+          clearInterval(firstTurnWatchdogInterval);
+          firstTurnWatchdogInterval = null;
+        }
+      }
+    }
+  }
+
+  function handleResponseDoneEvent(event) {
+    if (event.type === 'response.done') {
+      process.stdout.write('\n');
+      isAiSpeaking = false;
+      if (silenceTimer) clearTimeout(silenceTimer);
+      const userInput =
+        (typeof event.user_transcript === 'string' && event.user_transcript.trim()) ||
+        latestUserTranscript ||
+        '(tour d\'ouverture: aucune entrée utilisateur)';
+      let iaText = '';
+      if (event.response && event.response.output) {
+        event.response.output.forEach((item) => {
+          item.content?.forEach((contentPart) => {
+            if (typeof contentPart.transcript === 'string') {
+              iaText += contentPart.transcript;
+            } else if (typeof contentPart.text === 'string') {
+              iaText += contentPart.text;
+            }
+          });
+        });
+      }
+      console.log('\n[IA LOG] Entrée utilisateur :', userInput);
+      console.log('[IA LOG] Réponse IA :', iaText || '(aucune)');
+      console.log('[IA LOG] conversation_id :', event.conversation_id ?? null);
+      latestUserTranscript = '';
+    }
+  }
+
+  function handleAudioDeltaEvent(event) {
+    if (event.type === 'response.audio.delta' && event.delta) {
+      isAiSpeaking = true;
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        isAiSpeaking = false;
+      }, 1500);
+      try {
+        if (player && player.stdin && !player.stdin.destroyed && player.stdin.writable) {
+          player.stdin.write(Buffer.from(event.delta, 'base64'));
+        }
+      } catch (err) {
+        if (err.code !== 'EPIPE') console.error('Audio write error:', err);
+      }
+    }
+  }
+
+  function handleAudioTranscriptDeltaEvent(event) {
+    if (event.type === 'response.audio_transcript.delta' && event.delta) {
+      process.stdout.write(event.delta);
+    }
+  }
+
+  function handleErrorEvent(event) {
+    if (event.type === 'error') {
+      console.error('\n[Realtime Error Event]', JSON.stringify(event, null, 2));
+    }
+  }
+
+  function handleSpeechStartedEvent(event) {
+    if (event.type === 'input_audio_buffer.speech_started') {
+      console.log('\n[User started speaking...]');
+      startPlayer();
+      isAiSpeaking = false;
+      if (silenceTimer) clearTimeout(silenceTimer);
+    }
+  }
 
   ws.on('error', (e) => console.error('WS Error:', e));
   ws.on('close', () => {

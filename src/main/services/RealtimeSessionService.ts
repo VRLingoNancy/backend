@@ -18,6 +18,14 @@ import type {
 export class RealtimeSessionService {
   private fastify: FastifyInstance;
   private conversationService: ConversationService;
+  // State variables moved to instance properties
+  private isSessionActive = false;
+  private currentConversationId: string | null = null;
+  private hasSentBootstrapResponse = false;
+  private hasInitialTurnStarted = false;
+  private bootstrapRetryCount = 0;
+  private bootstrapFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private bootstrapRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     fastify: FastifyInstance,
@@ -70,13 +78,15 @@ export class RealtimeSessionService {
       },
     });
 
-    let isSessionActive = false;
-    let currentConversationId: string | null = null;
-    let hasSentBootstrapResponse = false;
-    let hasInitialTurnStarted = false;
-    let bootstrapRetryCount = 0;
-    let bootstrapFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    let bootstrapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Reset state for each session
+    this.isSessionActive = false;
+    this.currentConversationId = null;
+    this.hasSentBootstrapResponse = false;
+    this.hasInitialTurnStarted = false;
+    this.bootstrapRetryCount = 0;
+    this.bootstrapFallbackTimer = null;
+    this.bootstrapRetryTimer = null;
 
     const pendingTranscriptByItemId = new Map<string, string>();
     const recentCommittedUserItemIds: string[] = [];
@@ -144,24 +154,25 @@ export class RealtimeSessionService {
       return buildBootstrapPrompt(effectiveLang, isMedievalContext);
     };
 
+
     const clearBootstrapTimers = () => {
-      if (bootstrapFallbackTimer) {
-        clearTimeout(bootstrapFallbackTimer);
-        bootstrapFallbackTimer = null;
+      if (this.bootstrapFallbackTimer) {
+        clearTimeout(this.bootstrapFallbackTimer);
+        this.bootstrapFallbackTimer = null;
       }
-      if (bootstrapRetryTimer) {
-        clearTimeout(bootstrapRetryTimer);
-        bootstrapRetryTimer = null;
+      if (this.bootstrapRetryTimer) {
+        clearTimeout(this.bootstrapRetryTimer);
+        this.bootstrapRetryTimer = null;
       }
     };
 
     const sendBootstrapResponse = (force = false) => {
-      if (hasInitialTurnStarted) {
+      if (this.hasInitialTurnStarted) {
         clearBootstrapTimers();
         return;
       }
-      if (!force && hasSentBootstrapResponse) return;
-      hasSentBootstrapResponse = true;
+      if (!force && this.hasSentBootstrapResponse) return;
+      this.hasSentBootstrapResponse = true;
       const bootstrapResponse = {
         type: 'response.create',
         response: {
@@ -178,22 +189,22 @@ export class RealtimeSessionService {
           targetLang,
           conversationContext: conversationContext || 'classic',
           forcedRetry: force,
-          retryCount: bootstrapRetryCount,
+          retryCount: this.bootstrapRetryCount,
         },
         'Bootstrap response requested (assistant should speak first)'
       );
     };
 
     const scheduleBootstrapRetry = () => {
-      if (bootstrapRetryTimer) {
-        clearTimeout(bootstrapRetryTimer);
+      if (this.bootstrapRetryTimer) {
+        clearTimeout(this.bootstrapRetryTimer);
       }
-      bootstrapRetryTimer = setTimeout(() => {
-        if (hasInitialTurnStarted) {
+      this.bootstrapRetryTimer = setTimeout(() => {
+        if (this.hasInitialTurnStarted) {
           clearBootstrapTimers();
           return;
         }
-        if (bootstrapRetryCount >= 2) {
+        if (this.bootstrapRetryCount >= 2) {
           this.fastify.log.warn(
             {
               targetLang,
@@ -204,22 +215,25 @@ export class RealtimeSessionService {
           clearBootstrapTimers();
           return;
         }
-        bootstrapRetryCount += 1;
+        this.bootstrapRetryCount += 1;
         sendBootstrapResponse(true);
         scheduleBootstrapRetry();
       }, 5000);
     };
 
     const scheduleBootstrapFallback = () => {
-      if (bootstrapFallbackTimer) {
-        clearTimeout(bootstrapFallbackTimer);
+      if (this.bootstrapFallbackTimer) {
+        clearTimeout(this.bootstrapFallbackTimer);
       }
-      bootstrapFallbackTimer = setTimeout(() => {
+      this.bootstrapFallbackTimer = setTimeout(() => {
         sendBootstrapResponse();
         scheduleBootstrapRetry();
       }, 600);
     };
 
+
+    // All event handlers must be inside the method, not at class scope
+    // All event handlers must be inside the method, not at class scope
     openAIWs.on('open', () => {
       this.fastify.log.info('✅ Connected to OpenAI Realtime API');
     });
@@ -229,206 +243,23 @@ export class RealtimeSessionService {
         const event = JSON.parse(data.toString()) as RealtimeEvent;
         const isResponseDone = event.type === 'response.done';
 
-        if (event.type === 'session.created') {
-          const sessionConfig = {
-            type: 'session.update',
-            session: {
-              modalities: ['text', 'audio'],
-              instructions: buildSessionInstructions(),
-              voice: 'alloy',
-              input_audio_format: 'pcm16',
-              output_audio_format: 'pcm16',
-              turn_detection: {
-                type: 'server_vad',
-              },
-              input_audio_transcription: {
-                model: 'gpt-4o-mini-transcribe',
-              },
-            },
-          };
-          openAIWs.send(JSON.stringify(sessionConfig));
-          scheduleBootstrapFallback();
-          isSessionActive = true;
-          this.fastify.log.info(
-            {
-              targetLang,
-              conversationContext: conversationContext || 'classic',
-              transcriptionModel: 'gpt-4o-mini-transcribe',
-            },
-            '✨ Session initialized and configured'
-          );
-        }
-
-        if (event.type === 'session.updated') {
-          sendBootstrapResponse();
-        }
-
-        if (socket.readyState === WebSocket.OPEN && !isResponseDone) {
-          socket.send(data.toString());
-        }
-
-        if (event.type === 'input_audio_buffer.committed' && event.item_id) {
-          hasInitialTurnStarted = true;
-          clearBootstrapTimers();
-          rememberCommittedUserItem(event.item_id);
-          if (!pendingTranscriptByItemId.has(event.item_id)) {
-            pendingTranscriptByItemId.set(event.item_id, '');
-          }
-        }
-
-        if (
-          event.type === 'response.audio.delta' ||
-          event.type === 'response.audio_transcript.delta'
-        ) {
-          hasInitialTurnStarted = true;
-          clearBootstrapTimers();
-        }
-
-        if (
-          event.type === 'conversation.item.input_audio_transcription.delta' &&
-          event.item_id &&
-          typeof event.delta === 'string'
-        ) {
-          const previous = pendingTranscriptByItemId.get(event.item_id) || '';
-          pendingTranscriptByItemId.set(event.item_id, previous + event.delta);
-        }
-
-        if (
-          event.type ===
-            'conversation.item.input_audio_transcription.completed' &&
-          event.item_id &&
-          typeof event.transcript === 'string'
-        ) {
-          if (!recentCommittedUserItemIds.includes(event.item_id)) {
-            rememberCommittedUserItem(event.item_id);
-          }
-          pendingTranscriptByItemId.set(event.item_id, event.transcript.trim());
-          this.fastify.log.debug(
-            {
-              itemId: event.item_id,
-              transcript: event.transcript,
-            },
-            'Completed user input transcription received'
-          );
-        }
-
-        if (
-          event.type === 'conversation.item.input_audio_transcription.failed' &&
-          event.item_id
-        ) {
-          this.fastify.log.warn(
-            { itemId: event.item_id, event },
-            'User input transcription failed'
-          );
-        }
-
-        if (
-          event.type === 'conversation.item.created' &&
-          event.item?.role === 'user'
-        ) {
-          this.fastify.log.debug(
-            {
-              itemId: event.item.id,
-              contentTypes:
-                event.item.content?.map((part) => part.type).filter(Boolean) ||
-                [],
-            },
-            'User conversation item created'
-          );
-        }
-
-        if (event.type === 'response.done') {
-          hasInitialTurnStarted = true;
-          clearBootstrapTimers();
-          sessionGuard.incrementTurn();
-          const response = event.response;
-          const { itemId: persistedUserItemId, transcript: userTranscript } =
-            getTranscriptForPersistence();
-          const transcriptForTurn =
-            userTranscript.trim() || getMostRecentNonEmptyTranscript();
-
-          if (socket.readyState === WebSocket.OPEN) {
-            const enrichedEvent = {
-              ...event,
-              user_transcript: transcriptForTurn,
-              conversation_id: currentConversationId,
-            };
-            socket.send(JSON.stringify(enrichedEvent));
-          }
-
-          if (response && response.status === 'completed') {
-            let aiContent = '';
-            if (response.output) {
-              response.output.forEach((item) => {
-                item.content?.forEach((contentPart) => {
-                  if (typeof contentPart.transcript === 'string') {
-                    aiContent += contentPart.transcript;
-                  } else if (typeof contentPart.text === 'string') {
-                    aiContent += contentPart.text;
-                  }
-                });
-              });
-            }
-            const usage = response.usage || {
-              total_tokens: 0,
-              input_tokens: 0,
-              output_tokens: 0,
-            };
-            const inputDetails = usage.input_token_details || {};
-            const outputDetails = usage.output_token_details || {};
-            this.fastify.log.info(
-              {
-                usage,
-                persistedUserItemId,
-                userTranscriptLength: transcriptForTurn.length,
-                aiContentLength: aiContent.length,
-              },
-              'OpenAI Realtime response completed'
-            );
-            try {
-              const result = await this.conversationService.logRealtimeTurn(
-                userId,
-                currentConversationId,
-                transcriptForTurn,
-                aiContent,
-                {
-                  promptTokens: Number(
-                    usage.input_tokens || usage.prompt_tokens || 0
-                  ),
-                  completionTokens: Number(
-                    usage.output_tokens || usage.completion_tokens || 0
-                  ),
-                  totalTokens: Number(usage.total_tokens || 0),
-                  promptTextTokens: Number(inputDetails.text_tokens || 0),
-                  promptAudioTokens: Number(inputDetails.audio_tokens || 0),
-                  completionTextTokens: Number(outputDetails.text_tokens || 0),
-                  completionAudioTokens: Number(
-                    outputDetails.audio_tokens || 0
-                  ),
-                },
-                REALTIME_LIMITS.MODEL,
-                targetLang
-              );
-              currentConversationId = result.conversationId;
-              clearPersistedTranscript(persistedUserItemId);
-            } catch (dbError) {
-              this.fastify.log.error(
-                {
-                  err: dbError,
-                  persistedUserItemId,
-                },
-                'Failed to persist Realtime turn'
-              );
-            }
-          }
-        }
+        this.handleSessionCreated(event, openAIWs, buildSessionInstructions, scheduleBootstrapFallback, conversationContext, targetLang);
+        this.handleSessionUpdated(event, sendBootstrapResponse);
+        this.forwardNonDoneEventsToClient(event, socket, data, isResponseDone);
+        this.handleInputAudioBufferCommitted(event, clearBootstrapTimers, rememberCommittedUserItem, pendingTranscriptByItemId);
+        this.handleAudioDeltaEvents(event, clearBootstrapTimers);
+        this.handleTranscriptionDelta(event, pendingTranscriptByItemId);
+        this.handleTranscriptionCompleted(event, rememberCommittedUserItem, recentCommittedUserItemIds, pendingTranscriptByItemId);
+        this.handleTranscriptionFailed(event);
+        this.handleUserItemCreated(event);
+        await this.handleResponseDoneEvent(event, sessionGuard, getTranscriptForPersistence, getMostRecentNonEmptyTranscript, socket, this.currentConversationId, this.conversationService, userId, targetLang, REALTIME_LIMITS.MODEL, clearPersistedTranscript, this.fastify);
       } catch (err) {
         this.fastify.log.error({ err }, 'Error processing OpenAI message');
       }
     });
 
     socket.on('message', (data: WebSocket.RawData) => {
-      if (!isSessionActive) return;
+      if (!this.isSessionActive) return;
       try {
         sessionGuard.checkLimits();
         const messageString = data.toString();
@@ -457,20 +288,248 @@ export class RealtimeSessionService {
       if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
     });
 
-    openAIWs.on('close', (code, reason) => {
+    openAIWs.on('close', (code: any, reason: any) => {
       clearBootstrapTimers();
       this.fastify.log.info(
-        { code, reason: reason.toString() },
+        { code, reason: reason?.toString() },
         'OpenAI connection closed'
       );
       if (socket.readyState === WebSocket.OPEN) socket.close();
     });
 
-    openAIWs.on('error', (error) => {
+    openAIWs.on('error', (error: any) => {
       this.fastify.log.error({ err: error }, 'OpenAI WebSocket error');
       if (socket.readyState === WebSocket.OPEN) {
         socket.close(1011, 'Upstream error');
       }
     });
+  }
+
+  // --- Helper methods for complexity reduction ---
+  private handleSessionCreated(event: any, openAIWs: any, buildSessionInstructions: any, scheduleBootstrapFallback: any, conversationContext: any, targetLang: any) {
+    if (event.type === 'session.created') {
+      const sessionConfig = {
+        type: 'session.update',
+        session: {
+          modalities: ['text', 'audio'],
+          instructions: buildSessionInstructions(),
+          voice: 'alloy',
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+          turn_detection: {
+            type: 'server_vad',
+          },
+          input_audio_transcription: {
+            model: 'gpt-4o-mini-transcribe',
+          },
+        },
+      };
+      openAIWs.send(JSON.stringify(sessionConfig));
+      scheduleBootstrapFallback();
+      this.isSessionActive = true;
+      this.fastify.log.info(
+        {
+          targetLang,
+          conversationContext: conversationContext || 'classic',
+          transcriptionModel: 'gpt-4o-mini-transcribe',
+        },
+        '✨ Session initialized and configured'
+      );
+    }
+  }
+
+  private handleSessionUpdated(event: any, sendBootstrapResponse: any) {
+    if (event.type === 'session.updated') {
+      sendBootstrapResponse();
+    }
+  }
+
+  private forwardNonDoneEventsToClient(event: any, socket: any, data: any, isResponseDone: boolean) {
+    if (socket.readyState === WebSocket.OPEN && !isResponseDone) {
+      socket.send(data.toString());
+    }
+  }
+
+  private handleInputAudioBufferCommitted(event: any, clearBootstrapTimers: any, rememberCommittedUserItem: any, pendingTranscriptByItemId: any) {
+    if (event.type === 'input_audio_buffer.committed' && event.item_id) {
+      this.hasInitialTurnStarted = true;
+      clearBootstrapTimers();
+      rememberCommittedUserItem(event.item_id);
+      if (!pendingTranscriptByItemId.has(event.item_id)) {
+        pendingTranscriptByItemId.set(event.item_id, '');
+      }
+    }
+  }
+
+  private handleAudioDeltaEvents(event: any, clearBootstrapTimers: any) {
+    if (
+      event.type === 'response.audio.delta' ||
+      event.type === 'response.audio_transcript.delta'
+    ) {
+      this.hasInitialTurnStarted = true;
+      clearBootstrapTimers();
+    }
+  }
+
+  private handleTranscriptionDelta(event: any, pendingTranscriptByItemId: any) {
+    if (
+      event.type === 'conversation.item.input_audio_transcription.delta' &&
+      event.item_id &&
+      typeof event.delta === 'string'
+    ) {
+      const previous = pendingTranscriptByItemId.get(event.item_id) || '';
+      pendingTranscriptByItemId.set(event.item_id, previous + event.delta);
+    }
+  }
+
+  private handleTranscriptionCompleted(event: any, rememberCommittedUserItem: any, recentCommittedUserItemIds: any, pendingTranscriptByItemId: any) {
+    if (
+      event.type ===
+        'conversation.item.input_audio_transcription.completed' &&
+      event.item_id &&
+      typeof event.transcript === 'string'
+    ) {
+      if (!recentCommittedUserItemIds.includes(event.item_id)) {
+        rememberCommittedUserItem(event.item_id);
+      }
+      pendingTranscriptByItemId.set(event.item_id, event.transcript.trim());
+      this.fastify.log.debug(
+        {
+          itemId: event.item_id,
+          transcript: event.transcript,
+        },
+        'Completed user input transcription received'
+      );
+    }
+  }
+
+  private handleTranscriptionFailed(event: any) {
+    if (
+      event.type === 'conversation.item.input_audio_transcription.failed' &&
+      event.item_id
+    ) {
+      this.fastify.log.warn(
+        { itemId: event.item_id, event },
+        'User input transcription failed'
+      );
+    }
+  }
+
+  private handleUserItemCreated(event: any) {
+    if (
+      event.type === 'conversation.item.created' &&
+      event.item?.role === 'user'
+    ) {
+      this.fastify.log.debug(
+        {
+          itemId: event.item.id,
+          contentTypes:
+            event.item.content?.map((part: any) => part.type).filter(Boolean) ||
+            [],
+        },
+        'User conversation item created'
+      );
+    }
+  }
+
+  private async handleResponseDoneEvent(
+    event: any,
+    sessionGuard: any,
+    getTranscriptForPersistence: any,
+    getMostRecentNonEmptyTranscript: any,
+    socket: any,
+    currentConversationId: any,
+    conversationService: any,
+    userId: any,
+    targetLang: any,
+    model: any,
+    clearPersistedTranscript: any,
+    fastify: any
+  ) {
+    if (event.type === 'response.done') {
+      this.hasInitialTurnStarted = true;
+      clearPersistedTranscript = clearPersistedTranscript || (() => {});
+      sessionGuard.incrementTurn();
+      const response = event.response;
+      const { itemId: persistedUserItemId, transcript: userTranscript } =
+        getTranscriptForPersistence();
+      const transcriptForTurn =
+        userTranscript.trim() || getMostRecentNonEmptyTranscript();
+
+      if (socket.readyState === WebSocket.OPEN) {
+        const enrichedEvent = {
+          ...event,
+          user_transcript: transcriptForTurn,
+          conversation_id: currentConversationId,
+        };
+        socket.send(JSON.stringify(enrichedEvent));
+      }
+
+      if (response && response.status === 'completed') {
+        let aiContent = '';
+        if (response.output) {
+          response.output.forEach((item: any) => {
+            item.content?.forEach((contentPart: any) => {
+              if (typeof contentPart.transcript === 'string') {
+                aiContent += contentPart.transcript;
+              } else if (typeof contentPart.text === 'string') {
+                aiContent += contentPart.text;
+              }
+            });
+          });
+        }
+        const usage = response.usage || {
+          total_tokens: 0,
+          input_tokens: 0,
+          output_tokens: 0,
+        };
+        const inputDetails = usage.input_token_details || {};
+        const outputDetails = usage.output_token_details || {};
+        fastify.log.info(
+          {
+            usage,
+            persistedUserItemId,
+            userTranscriptLength: transcriptForTurn.length,
+            aiContentLength: aiContent.length,
+          },
+          'OpenAI Realtime response completed'
+        );
+        try {
+          const result = await conversationService.logRealtimeTurn(
+            userId,
+            currentConversationId,
+            transcriptForTurn,
+            aiContent,
+            {
+              promptTokens: Number(
+                usage.input_tokens || usage.prompt_tokens || 0
+              ),
+              completionTokens: Number(
+                usage.output_tokens || usage.completion_tokens || 0
+              ),
+              totalTokens: Number(usage.total_tokens || 0),
+              promptTextTokens: Number(inputDetails.text_tokens || 0),
+              promptAudioTokens: Number(inputDetails.audio_tokens || 0),
+              completionTextTokens: Number(outputDetails.text_tokens || 0),
+              completionAudioTokens: Number(
+                outputDetails.audio_tokens || 0
+              ),
+            },
+            model,
+            targetLang
+          );
+          this.currentConversationId = result.conversationId;
+          clearPersistedTranscript(persistedUserItemId);
+        } catch (dbError) {
+          fastify.log.error(
+            {
+              err: dbError,
+              persistedUserItemId,
+            },
+            'Failed to persist Realtime turn'
+          );
+        }
+      }
+    }
   }
 }
