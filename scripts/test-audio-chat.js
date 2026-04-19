@@ -157,7 +157,7 @@ async function main() {
     });
     player.stderr.on('data', (data) => {
       const msg = data.toString().trim();
-      if (msg) console.error(`[aplay] ${msg}`);
+      // if (msg) console.error(`[aplay] ${msg}`);
     });
   }
 
@@ -184,65 +184,30 @@ async function main() {
   let firstTurnWatchdogInterval = null;
   let firstTurnRetryCount = 0;
 
-  function buildClientOpeningPrompt() {
-    if (selectedContext === 'medieval') {
-      return `Commence maintenant. Accueille l'utilisateur en ${targetLang} avec un ton medieval, puis pose UNE question simple pour lancer l'echange.`;
-    }
-
-    return `Commence maintenant. Accueille l'utilisateur en ${targetLang}, puis pose UNE question simple pour lancer l'echange.`;
-  }
-
-  function requestOpeningTurnFromClient() {
-    if (ws.readyState !== WebSocket.OPEN || !waitForFirstAssistantTurn) {
-      return;
-    }
-
-    const event = {
-      type: 'response.create',
-      response: {
-        modalities: ['text', 'audio'],
-        instructions: buildClientOpeningPrompt(),
-        max_output_tokens: 64,
-        temperature: 0.6,
-      },
-    };
-
-    ws.send(JSON.stringify(event));
-  }
-
+  // Plus de bootstrap côté client : on laisse le backend piloter le premier tour IA
   function startFirstTurnWatchdog() {
     if (firstTurnWatchdogInterval) {
       clearInterval(firstTurnWatchdogInterval);
       firstTurnWatchdogInterval = null;
     }
 
-    firstTurnRetryCount = 0;
-
     // On garde le micro verrouillé tant que l'IA n'a pas commencé son premier tour.
-    // Si aucun son n'arrive, on relance explicitement response.create avant d'abandonner.
+    // Si aucun son n'arrive, on débloque le micro après 15s pour éviter un blocage infini.
+    let elapsed = 0;
     firstTurnWatchdogInterval = setInterval(() => {
       if (!waitForFirstAssistantTurn) {
         clearInterval(firstTurnWatchdogInterval);
         firstTurnWatchdogInterval = null;
         return;
       }
-
-      if (firstTurnRetryCount < 3) {
-        firstTurnRetryCount += 1;
-        console.log(
-          `ℹ️ Tour initial IA non detecte, relance ${firstTurnRetryCount}/3...`
-        );
-        requestOpeningTurnFromClient();
-        return;
+      elapsed += 1;
+      if (elapsed >= 15) {
+        waitForFirstAssistantTurn = false;
+        clearInterval(firstTurnWatchdogInterval);
+        firstTurnWatchdogInterval = null;
+        console.log('⚠️ Aucun tour IA détecté après 15s, micro activé en secours.');
       }
-
-      waitForFirstAssistantTurn = false;
-      clearInterval(firstTurnWatchdogInterval);
-      firstTurnWatchdogInterval = null;
-      console.log(
-        '⚠️ Impossible de déclencher un tour initial IA automatiquement. Micro réactivé en secours.'
-      );
-    }, 5000);
+    }, 1000);
   }
 
   ws.on('open', () => {
@@ -289,7 +254,8 @@ async function main() {
           latestUserTranscript ||
           '(tour d\'ouverture: aucune entrée utilisateur)';
 
-        console.log('\n[IA LOG] Entrée utilisateur :', userInput);
+        // Log conversationId enrichi par le backend (peut être null)
+
         let iaText = '';
         if (event.response && event.response.output) {
           event.response.output.forEach((item) => {
@@ -302,7 +268,9 @@ async function main() {
             });
           });
         }
+        console.log('\n[IA LOG] Entrée utilisateur :', userInput);
         console.log('[IA LOG] Réponse IA :', iaText || '(aucune)');
+        console.log('[IA LOG] conversation_id :', event.conversation_id ?? null);
         latestUserTranscript = '';
       }
 
@@ -328,7 +296,7 @@ async function main() {
       }
       if (event.type === 'input_audio_buffer.speech_started') {
         console.log('\n[User started speaking...]');
-        console.log('⚡ Interruption détectée (Purger Audio Output)...');
+        // console.log('⚡ Interruption détectée (Purger Audio Output)...');
         startPlayer();
         isAiSpeaking = false;
         if (silenceTimer) clearTimeout(silenceTimer);
