@@ -78,7 +78,6 @@ export class RealtimeSessionService {
       },
     });
 
-
     // Reset state for each session
     this.isSessionActive = false;
     this.currentConversationId = null;
@@ -153,7 +152,6 @@ export class RealtimeSessionService {
       );
       return buildBootstrapPrompt(effectiveLang, isMedievalContext);
     };
-
 
     const clearBootstrapTimers = () => {
       if (this.bootstrapFallbackTimer) {
@@ -231,7 +229,6 @@ export class RealtimeSessionService {
       }, 600);
     };
 
-
     // All event handlers must be inside the method, not at class scope
     // All event handlers must be inside the method, not at class scope
     openAIWs.on('open', () => {
@@ -243,16 +240,46 @@ export class RealtimeSessionService {
         const event = JSON.parse(data.toString()) as RealtimeEvent;
         const isResponseDone = event.type === 'response.done';
 
-        this.handleSessionCreated(event, openAIWs, buildSessionInstructions, scheduleBootstrapFallback, conversationContext, targetLang);
+        this.handleSessionCreated(
+          event,
+          openAIWs,
+          buildSessionInstructions,
+          scheduleBootstrapFallback,
+          conversationContext,
+          targetLang
+        );
         this.handleSessionUpdated(event, sendBootstrapResponse);
         this.forwardNonDoneEventsToClient(event, socket, data, isResponseDone);
-        this.handleInputAudioBufferCommitted(event, clearBootstrapTimers, rememberCommittedUserItem, pendingTranscriptByItemId);
+        this.handleInputAudioBufferCommitted(
+          event,
+          clearBootstrapTimers,
+          rememberCommittedUserItem,
+          pendingTranscriptByItemId
+        );
         this.handleAudioDeltaEvents(event, clearBootstrapTimers);
         this.handleTranscriptionDelta(event, pendingTranscriptByItemId);
-        this.handleTranscriptionCompleted(event, rememberCommittedUserItem, recentCommittedUserItemIds, pendingTranscriptByItemId);
+        this.handleTranscriptionCompleted(
+          event,
+          rememberCommittedUserItem,
+          recentCommittedUserItemIds,
+          pendingTranscriptByItemId
+        );
         this.handleTranscriptionFailed(event);
         this.handleUserItemCreated(event);
-        await this.handleResponseDoneEvent(event, sessionGuard, getTranscriptForPersistence, getMostRecentNonEmptyTranscript, socket, this.currentConversationId, this.conversationService, userId, targetLang, REALTIME_LIMITS.MODEL, clearPersistedTranscript, this.fastify);
+        await this.handleResponseDoneEvent(
+          event,
+          sessionGuard,
+          getTranscriptForPersistence,
+          getMostRecentNonEmptyTranscript,
+          socket,
+          this.currentConversationId,
+          this.conversationService,
+          userId,
+          targetLang,
+          REALTIME_LIMITS.MODEL,
+          clearPersistedTranscript,
+          this.fastify
+        );
       } catch (err) {
         this.fastify.log.error({ err }, 'Error processing OpenAI message');
       }
@@ -288,7 +315,7 @@ export class RealtimeSessionService {
       if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
     });
 
-    openAIWs.on('close', (code: any, reason: any) => {
+    openAIWs.on('close', (code: number, reason: Buffer | string) => {
       clearBootstrapTimers();
       this.fastify.log.info(
         { code, reason: reason?.toString() },
@@ -297,7 +324,7 @@ export class RealtimeSessionService {
       if (socket.readyState === WebSocket.OPEN) socket.close();
     });
 
-    openAIWs.on('error', (error: any) => {
+    openAIWs.on('error', (error: Error) => {
       this.fastify.log.error({ err: error }, 'OpenAI WebSocket error');
       if (socket.readyState === WebSocket.OPEN) {
         socket.close(1011, 'Upstream error');
@@ -306,7 +333,14 @@ export class RealtimeSessionService {
   }
 
   // --- Helper methods for complexity reduction ---
-  private handleSessionCreated(event: any, openAIWs: any, buildSessionInstructions: any, scheduleBootstrapFallback: any, conversationContext: any, targetLang: any) {
+  private handleSessionCreated(
+    event: RealtimeEvent,
+    openAIWs: WebSocket,
+    buildSessionInstructions: () => string,
+    scheduleBootstrapFallback: () => void,
+    conversationContext: RealtimeConversationContext | undefined,
+    targetLang: string
+  ) {
     if (event.type === 'session.created') {
       const sessionConfig = {
         type: 'session.update',
@@ -338,19 +372,32 @@ export class RealtimeSessionService {
     }
   }
 
-  private handleSessionUpdated(event: any, sendBootstrapResponse: any) {
+  private handleSessionUpdated(
+    event: RealtimeEvent,
+    sendBootstrapResponse: () => void
+  ) {
     if (event.type === 'session.updated') {
       sendBootstrapResponse();
     }
   }
 
-  private forwardNonDoneEventsToClient(event: any, socket: any, data: any, isResponseDone: boolean) {
+  private forwardNonDoneEventsToClient(
+    event: RealtimeEvent,
+    socket: WebSocket,
+    data: WebSocket.RawData,
+    isResponseDone: boolean
+  ) {
     if (socket.readyState === WebSocket.OPEN && !isResponseDone) {
       socket.send(data.toString());
     }
   }
 
-  private handleInputAudioBufferCommitted(event: any, clearBootstrapTimers: any, rememberCommittedUserItem: any, pendingTranscriptByItemId: any) {
+  private handleInputAudioBufferCommitted(
+    event: RealtimeEvent,
+    clearBootstrapTimers: () => void,
+    rememberCommittedUserItem: (itemId: string) => void,
+    pendingTranscriptByItemId: Map<string, string>
+  ) {
     if (event.type === 'input_audio_buffer.committed' && event.item_id) {
       this.hasInitialTurnStarted = true;
       clearBootstrapTimers();
@@ -361,7 +408,10 @@ export class RealtimeSessionService {
     }
   }
 
-  private handleAudioDeltaEvents(event: any, clearBootstrapTimers: any) {
+  private handleAudioDeltaEvents(
+    event: RealtimeEvent,
+    clearBootstrapTimers: () => void
+  ) {
     if (
       event.type === 'response.audio.delta' ||
       event.type === 'response.audio_transcript.delta'
@@ -371,7 +421,10 @@ export class RealtimeSessionService {
     }
   }
 
-  private handleTranscriptionDelta(event: any, pendingTranscriptByItemId: any) {
+  private handleTranscriptionDelta(
+    event: RealtimeEvent,
+    pendingTranscriptByItemId: Map<string, string>
+  ) {
     if (
       event.type === 'conversation.item.input_audio_transcription.delta' &&
       event.item_id &&
@@ -382,10 +435,14 @@ export class RealtimeSessionService {
     }
   }
 
-  private handleTranscriptionCompleted(event: any, rememberCommittedUserItem: any, recentCommittedUserItemIds: any, pendingTranscriptByItemId: any) {
+  private handleTranscriptionCompleted(
+    event: RealtimeEvent,
+    rememberCommittedUserItem: (itemId: string) => void,
+    recentCommittedUserItemIds: string[],
+    pendingTranscriptByItemId: Map<string, string>
+  ) {
     if (
-      event.type ===
-        'conversation.item.input_audio_transcription.completed' &&
+      event.type === 'conversation.item.input_audio_transcription.completed' &&
       event.item_id &&
       typeof event.transcript === 'string'
     ) {
@@ -403,7 +460,7 @@ export class RealtimeSessionService {
     }
   }
 
-  private handleTranscriptionFailed(event: any) {
+  private handleTranscriptionFailed(event: RealtimeEvent) {
     if (
       event.type === 'conversation.item.input_audio_transcription.failed' &&
       event.item_id
@@ -415,7 +472,7 @@ export class RealtimeSessionService {
     }
   }
 
-  private handleUserItemCreated(event: any) {
+  private handleUserItemCreated(event: RealtimeEvent) {
     if (
       event.type === 'conversation.item.created' &&
       event.item?.role === 'user'
@@ -424,8 +481,9 @@ export class RealtimeSessionService {
         {
           itemId: event.item.id,
           contentTypes:
-            event.item.content?.map((part: any) => part.type).filter(Boolean) ||
-            [],
+            event.item.content
+              ?.map((part) => part.type)
+              .filter((type): type is string => typeof type === 'string') || [],
         },
         'User conversation item created'
       );
@@ -433,18 +491,21 @@ export class RealtimeSessionService {
   }
 
   private async handleResponseDoneEvent(
-    event: any,
-    sessionGuard: any,
-    getTranscriptForPersistence: any,
-    getMostRecentNonEmptyTranscript: any,
-    socket: any,
-    currentConversationId: any,
-    conversationService: any,
-    userId: any,
-    targetLang: any,
-    model: any,
-    clearPersistedTranscript: any,
-    fastify: any
+    event: RealtimeEvent,
+    sessionGuard: SessionGuard,
+    getTranscriptForPersistence: () => {
+      itemId: string | null;
+      transcript: string;
+    },
+    getMostRecentNonEmptyTranscript: () => string,
+    socket: WebSocket,
+    currentConversationId: string | null,
+    conversationService: ConversationService,
+    userId: string,
+    targetLang: string,
+    model: string,
+    clearPersistedTranscript: (itemId: string | null) => void,
+    fastify: FastifyInstance
   ) {
     if (event.type === 'response.done') {
       this.hasInitialTurnStarted = true;
@@ -468,15 +529,19 @@ export class RealtimeSessionService {
       if (response && response.status === 'completed') {
         let aiContent = '';
         if (response.output) {
-          response.output.forEach((item: any) => {
-            item.content?.forEach((contentPart: any) => {
-              if (typeof contentPart.transcript === 'string') {
-                aiContent += contentPart.transcript;
-              } else if (typeof contentPart.text === 'string') {
-                aiContent += contentPart.text;
-              }
-            });
-          });
+          response.output.forEach(
+            (item: { content?: { transcript?: string; text?: string }[] }) => {
+              item.content?.forEach(
+                (contentPart: { transcript?: string; text?: string }) => {
+                  if (typeof contentPart.transcript === 'string') {
+                    aiContent += contentPart.transcript;
+                  } else if (typeof contentPart.text === 'string') {
+                    aiContent += contentPart.text;
+                  }
+                }
+              );
+            }
+          );
         }
         const usage = response.usage || {
           total_tokens: 0,
@@ -511,9 +576,7 @@ export class RealtimeSessionService {
               promptTextTokens: Number(inputDetails.text_tokens || 0),
               promptAudioTokens: Number(inputDetails.audio_tokens || 0),
               completionTextTokens: Number(outputDetails.text_tokens || 0),
-              completionAudioTokens: Number(
-                outputDetails.audio_tokens || 0
-              ),
+              completionAudioTokens: Number(outputDetails.audio_tokens || 0),
             },
             model,
             targetLang
