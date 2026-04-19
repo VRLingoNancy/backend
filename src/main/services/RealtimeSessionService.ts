@@ -337,6 +337,7 @@ export class RealtimeSessionService {
             const enrichedEvent = {
               ...event,
               user_transcript: transcriptForTurn,
+              conversation_id: currentConversationId
             };
             socket.send(JSON.stringify(enrichedEvent));
           }
