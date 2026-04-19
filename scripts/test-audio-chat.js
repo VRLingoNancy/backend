@@ -4,8 +4,8 @@ import readline from 'readline';
 
 // --- CONFIGURATION ---
 const API_URL = 'http://localhost:3000'; // Adapter le port si besoin
-const EMAIL = 'test@vrlingo.local';      // User créé pour les tests
-const PASSWORD = 'test1234';             // Mot de passe de test
+const EMAIL = 'user@example.com';      // User créé pour les tests
+const PASSWORD = 'string';             // Mot de passe de test
 
 // Configuration Audio (Standard OpenAI Realtime)
 const AUDIO_FORMAT = 'S16_LE'; // PCM 16-bit
@@ -13,9 +13,77 @@ const SAMPLE_RATE = '24000';   // 24kHz
 const CHANNELS = '1';          // Mono
 const AUDIO_DEVICE = process.env.AUDIO_DEVICE; // ex: "plughw:1,0"
 
+async function askTargetLanguage() {
+  // Liste stricte des langues supportées (codes courts)
+  const supportedLangs = [
+    { code: 'fr', label: 'français' },
+    { code: 'en', label: 'anglais' },
+    { code: 'it', label: 'italien' },
+    { code: 'de', label: 'allemand' },
+  ];
+
+  console.log('Langues disponibles :');
+  supportedLangs.forEach((l, i) => {
+    console.log(`  ${i + 1}. ${l.label} (${l.code})`);
+  });
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise((resolve) => {
+    rl.question(
+      'Choisissez la langue cible (1-4 ou code court, ex: fr) [1] : ',
+      (value) => resolve((value || '').trim())
+    );
+  });
+
+  rl.close();
+  if (!answer || answer === '1') return 'fr';
+  if (answer === '2') return 'en';
+  if (answer === '3') return 'it';
+  if (answer === '4') return 'de';
+  // Si l'utilisateur tape un code personnalisé, on ne garde que fr/en/it/de
+  if (['fr', 'en', 'it', 'de'].includes(answer)) return answer;
+  console.error('Langue non supportée. Choisissez fr, en, it ou de.');
+  process.exit(1);
+}
+
+async function askConversationMode() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const answer = await new Promise((resolve) => {
+    rl.question(
+      'Mode de conversation ? (1 = professeur classique, 2 = professeur medieval) : ',
+      (value) => resolve((value || '').trim())
+    );
+  });
+
+  rl.close();
+
+  if (answer === '2') {
+    return 'medieval';
+  }
+
+  return null;
+}
+
 async function main() {
   console.log('🎤 VRLingo Audio Terminal Client');
   console.log('--------------------------------');
+
+  const targetLang = await askTargetLanguage();
+  const selectedContext = await askConversationMode();
+  console.log(`🌐 Langue sélectionnée (UI): ${targetLang}`);
+  if (selectedContext === 'medieval') {
+    console.log('🏰 Mode sélectionné: professeur médiéval');
+  } else {
+    console.log('📘 Mode sélectionné: professeur classique');
+  }
 
   // 1. LOGIN
   console.log(`📡 Authentification pour ${EMAIL}...`);
@@ -41,8 +109,12 @@ async function main() {
   console.log('✅ Token récupéré:', token.substring(0, 10) + '...');
 
   // 2. CONNECTION WEBSOCKET
-  // On passe le code langue Italien pour tester la transcription multilingue
-  const wsUrl = API_URL.replace('http', 'ws') + '/api/realtime/session?lang=fr-FR';
+  const wsQuery = new URLSearchParams({ lang: targetLang });
+  if (selectedContext) {
+    wsQuery.set('context', selectedContext);
+  }
+  const wsUrl =
+    API_URL.replace('http', 'ws') + `/api/realtime/session?${wsQuery.toString()}`;
   console.log(`🔌 Connexion au WebSocket: ${wsUrl}`);
   
   // Clean token just in case
@@ -85,7 +157,7 @@ async function main() {
     });
     player.stderr.on('data', (data) => {
       const msg = data.toString().trim();
-      if (msg) console.error(`[aplay] ${msg}`);
+      // if (msg) console.error(`[aplay] ${msg}`);
     });
   }
 
@@ -107,63 +179,155 @@ async function main() {
 
   let isAiSpeaking = false;
   let silenceTimer = null;
+  let latestUserTranscript = '';
+  let waitForFirstAssistantTurn = true;
+  let firstTurnWatchdogInterval = null;
+  let firstTurnRetryCount = 0;
+
+  // Plus de bootstrap côté client : on laisse le backend piloter le premier tour IA
+  function startFirstTurnWatchdog() {
+    if (firstTurnWatchdogInterval) {
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+    }
+
+    // On garde le micro verrouillé tant que l'IA n'a pas commencé son premier tour.
+    // Si aucun son n'arrive, on débloque le micro après 15s pour éviter un blocage infini.
+    let elapsed = 0;
+    firstTurnWatchdogInterval = setInterval(() => {
+      if (!waitForFirstAssistantTurn) {
+        clearInterval(firstTurnWatchdogInterval);
+        firstTurnWatchdogInterval = null;
+        return;
+      }
+      elapsed += 1;
+      if (elapsed >= 15) {
+        waitForFirstAssistantTurn = false;
+        clearInterval(firstTurnWatchdogInterval);
+        firstTurnWatchdogInterval = null;
+        console.log('⚠️ Aucun tour IA détecté après 15s, micro activé en secours.');
+      }
+    }, 1000);
+  }
 
   ws.on('open', () => {
-    console.log('✅ Connecté ! L\'IA t\'écoute (Server VAD actif). Parle...');
+    console.log('✅ Connecté ! L\'IA va démarrer en premier...');
     console.log('🔴 Enregistrement micro actif (CTRL+C pour quitter)');
+    startFirstTurnWatchdog();
   });
 
   ws.on('message', (data) => {
     try {
       const event = JSON.parse(data.toString());
-
-      // Gestion du flux audio entrant (de l'IA vers nous)
-      if (event.type === 'response.audio.delta' && event.delta) {
-        isAiSpeaking = true;
-        
-        // Reset du timer de silence à chaque paquet reçu
-        if (silenceTimer) clearTimeout(silenceTimer);
-        // On considère que l'IA a fini de parler après 1.5s de silence (Anti-Echo Buffer)
-        silenceTimer = setTimeout(() => {
-            isAiSpeaking = false;
-        }, 1500);
-
-        // Ecriture dans le player s'il est actif
-        try {
-            if (player && player.stdin && !player.stdin.destroyed && player.stdin.writable) {
-                player.stdin.write(Buffer.from(event.delta, 'base64'));
-            }
-        } catch (err) {
-            // Ignorer erreurs d'écriture si player redémarre
-            if (err.code !== 'EPIPE') console.error('Audio write error:', err);
-        }
-      }
-
-      // Affichage visuel des événements intéressants
-      if (event.type === 'response.audio_transcript.delta' && event.delta) {
-        process.stdout.write(event.delta); // Effet machine à écrire
-      }
-      if (event.type === 'response.done') {
-        process.stdout.write('\n'); // Saut de ligne à la fin de la réponse
-        // Sécurité supplémentaire : Fin explicite de réponse
-        isAiSpeaking = false; 
-        if (silenceTimer) clearTimeout(silenceTimer);
-      }
-      if (event.type === 'input_audio_buffer.speech_started') {
-        console.log('\n[User started speaking...]');
-        console.log('⚡ Interruption détectée (Purger Audio Output)...');
-        startPlayer(); // RESET DU LECTEUR AUDIO POUR VIDER LE BUFFER
-        isAiSpeaking = false;
-        if (silenceTimer) clearTimeout(silenceTimer);
-      }
-      
+      handleUserTranscriptEvent(event);
+      handleAssistantTurnEvent(event);
+      handleResponseDoneEvent(event);
+      handleAudioDeltaEvent(event);
+      handleAudioTranscriptDeltaEvent(event);
+      handleErrorEvent(event);
+      handleSpeechStartedEvent(event);
     } catch (e) {
       console.error('Erreur parsing:', e);
     }
   });
 
+  function handleUserTranscriptEvent(event) {
+    if (
+      event.type === 'conversation.item.input_audio_transcription.completed' &&
+      typeof event.transcript === 'string'
+    ) {
+      latestUserTranscript = event.transcript.trim();
+    }
+  }
+
+  function handleAssistantTurnEvent(event) {
+    if (
+      event.type === 'response.done' ||
+      (event.type === 'response.audio.delta' && event.delta) ||
+      (event.type === 'response.audio_transcript.delta' && event.delta)
+    ) {
+      if (waitForFirstAssistantTurn) {
+        waitForFirstAssistantTurn = false;
+        if (firstTurnWatchdogInterval) {
+          clearInterval(firstTurnWatchdogInterval);
+          firstTurnWatchdogInterval = null;
+        }
+      }
+    }
+  }
+
+  function handleResponseDoneEvent(event) {
+    if (event.type === 'response.done') {
+      process.stdout.write('\n');
+      isAiSpeaking = false;
+      if (silenceTimer) clearTimeout(silenceTimer);
+      const userInput =
+        (typeof event.user_transcript === 'string' && event.user_transcript.trim()) ||
+        latestUserTranscript ||
+        '(tour d\'ouverture: aucune entrée utilisateur)';
+      let iaText = '';
+      if (event.response && event.response.output) {
+        event.response.output.forEach((item) => {
+          item.content?.forEach((contentPart) => {
+            if (typeof contentPart.transcript === 'string') {
+              iaText += contentPart.transcript;
+            } else if (typeof contentPart.text === 'string') {
+              iaText += contentPart.text;
+            }
+          });
+        });
+      }
+      console.log('\n[IA LOG] Entrée utilisateur :', userInput);
+      console.log('[IA LOG] Réponse IA :', iaText || '(aucune)');
+      console.log('[IA LOG] conversation_id :', event.conversation_id ?? null);
+      latestUserTranscript = '';
+    }
+  }
+
+  function handleAudioDeltaEvent(event) {
+    if (event.type === 'response.audio.delta' && event.delta) {
+      isAiSpeaking = true;
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        isAiSpeaking = false;
+      }, 1500);
+      try {
+        if (player && player.stdin && !player.stdin.destroyed && player.stdin.writable) {
+          player.stdin.write(Buffer.from(event.delta, 'base64'));
+        }
+      } catch (err) {
+        if (err.code !== 'EPIPE') console.error('Audio write error:', err);
+      }
+    }
+  }
+
+  function handleAudioTranscriptDeltaEvent(event) {
+    if (event.type === 'response.audio_transcript.delta' && event.delta) {
+      process.stdout.write(event.delta);
+    }
+  }
+
+  function handleErrorEvent(event) {
+    if (event.type === 'error') {
+      console.error('\n[Realtime Error Event]', JSON.stringify(event, null, 2));
+    }
+  }
+
+  function handleSpeechStartedEvent(event) {
+    if (event.type === 'input_audio_buffer.speech_started') {
+      console.log('\n[User started speaking...]');
+      startPlayer();
+      isAiSpeaking = false;
+      if (silenceTimer) clearTimeout(silenceTimer);
+    }
+  }
+
   ws.on('error', (e) => console.error('WS Error:', e));
   ws.on('close', () => {
+    if (firstTurnWatchdogInterval) {
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+    }
     console.log('Session fermée.');
     process.exit(0);
   });
@@ -172,6 +336,10 @@ async function main() {
 
   const CHUNK_SIZE = 4096; // Envoyer par petits paquets
   recorder.stdout.on('data', (chunk) => {
+    if (waitForFirstAssistantTurn) {
+      return;
+    }
+
     // PROTECTION ANTI-ECHO : Si l'IA parle, on coupe le micro logiciel
     if (isAiSpeaking) {
         return;
@@ -202,6 +370,10 @@ async function main() {
   // Gestion de l'arrêt
   process.on('SIGINT', () => {
     console.log('\nArrêt...');
+    if (firstTurnWatchdogInterval) {
+      clearInterval(firstTurnWatchdogInterval);
+      firstTurnWatchdogInterval = null;
+    }
     recorder.kill();
     if (player) player.kill();
     ws.close();

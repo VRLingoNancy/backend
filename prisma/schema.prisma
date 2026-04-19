@@ -143,6 +143,9 @@ model Conversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  aiScore   Int?     @db.Integer // Score d'évaluation IA (0-100)
+  aiFeedback String? @db.Text    // Appréciation/feedback IA sur la conversation
+
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages Message[] // Une conversation a plusieurs messages
 

@@ -53,7 +53,7 @@ const getConversationRoute: FastifyPluginAsync = async (fastify) => {
         const userId = request.user?.sub;
         const { conversationId } = request.params as { conversationId: string };
 
-        const conversation = await conversationService.getById(
+        const conversation = await conversationService.getByIdAndUser(
           conversationId,
           userId
         );
