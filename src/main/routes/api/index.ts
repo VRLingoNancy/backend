@@ -7,7 +7,11 @@ import realtimeRoutes from './realtime/index';
 
 const apiRoutes: FastifyPluginAsync = async (fastify) => {
   if (process.env.NODE_ENV !== 'test') {
-    fastify.addHook('onRequest', fastify.authenticate);
+    fastify.addHook('onRequest', async (request, reply) => {
+      // The realtime WS session uses a ticket-based auth handled by its own preHandler.
+      if (request.url.startsWith('/api/realtime/session')) return;
+      await fastify.authenticate(request, reply);
+    });
   }
 
   await fastify.register(pingRoute);

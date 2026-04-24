@@ -1,4 +1,9 @@
-import { FastifyPluginAsync, FastifySchema } from 'fastify';
+import {
+  FastifyPluginAsync,
+  FastifyReply,
+  FastifyRequest,
+  FastifySchema,
+} from 'fastify';
 import WebSocket from 'ws';
 import { z } from 'zod';
 import { ConversationService } from '../../../services/ConversationService';
@@ -10,6 +15,50 @@ const realtimeRoutes: FastifyPluginAsync = async (fastify) => {
   // Prompts (instructions système / bootstrap) et logique de langue extraits dans des modules dédiés.
 
   const conversationService = new ConversationService(fastify.prisma);
+  const realtimeTicketTtlSeconds = 60;
+  type RealtimeTicketPayload = {
+    sub: string;
+    role?: string;
+    type?: 'refresh' | 'ws-ticket';
+    iat?: number;
+    exp?: number;
+  };
+
+  const authenticateRealtimeSession = async (
+    request: FastifyRequest,
+    reply: FastifyReply
+  ) => {
+    const query = request.query as { ticket?: string };
+    let ticket = query.ticket;
+
+    if (!ticket && request.url) {
+      const qIdx = request.url.indexOf('?');
+      if (qIdx >= 0) {
+        ticket =
+          new URLSearchParams(request.url.slice(qIdx + 1)).get('ticket') ||
+          undefined;
+      }
+    }
+
+    if (ticket) {
+      let payload: RealtimeTicketPayload;
+
+      try {
+        payload = await fastify.jwt.verify<RealtimeTicketPayload>(ticket);
+      } catch {
+        return reply.code(401).send({ error: 'Invalid realtime ticket' });
+      }
+
+      if (payload.type !== 'ws-ticket') {
+        return reply.code(401).send({ error: 'Invalid realtime ticket type' });
+      }
+
+      request.user = payload;
+      return;
+    }
+
+    await fastify.authenticate(request, reply);
+  };
 
   fastify.get('/connect-info', {
     schema: {
@@ -23,7 +72,7 @@ To start a conversation, connect via WebSocket to:
 **Parameters:**
 - \`lang\` (Optional): Target language code (must be one of: 'fr', 'en', 'it', 'de'). Defaults to 'en'.
 - \`context\` (Optional): Conversation style context. For now: 'medieval'
-- \`Authorization\`: Bearer Token (JWT)
+- \`ticket\` (Required for WebSocket): Short-lived ticket returned by \`POST /api/realtime/ws-ticket\`. Use your JWT Bearer token to call that endpoint first.
 
 **Protocol:**
 - **Client sends:** JSON events (audio buffer append / commit / response.create)
@@ -62,6 +111,12 @@ To start a conversation, connect via WebSocket to:
         .describe(
           'Optional style context. When set to "medieval", the assistant uses medieval phrasing.'
         ),
+      ticket: z
+        .string()
+        .optional()
+        .describe(
+          'Short-lived realtime WebSocket ticket. Use POST /api/realtime/ws-ticket before opening the socket.'
+        ),
     }),
     response: {
       101: z
@@ -70,9 +125,49 @@ To start a conversation, connect via WebSocket to:
     },
   };
 
+  fastify.post(
+    '/ws-ticket',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        summary: 'Create realtime WebSocket ticket',
+        description:
+          'Returns a short-lived JWT ticket dedicated to the realtime WebSocket handshake.',
+        tags: ['realtime', 'ai'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: z.object({
+            ticket: z.string(),
+            expiresInSec: z.number(),
+          }),
+        },
+      },
+    },
+    async (request) => {
+      const ticket = fastify.jwt.sign(
+        {
+          sub: request.user.sub,
+          role: request.user.role,
+          type: 'ws-ticket',
+        },
+        { expiresIn: `${realtimeTicketTtlSeconds}s` }
+      );
+
+      fastify.log.info(
+        { userId: request.user.sub, requestId: request.id },
+        'Realtime WebSocket ticket issued'
+      );
+
+      return {
+        ticket,
+        expiresInSec: realtimeTicketTtlSeconds,
+      };
+    }
+  );
+
   fastify.get(
     '/session',
-    { websocket: true, preHandler: [fastify.authenticate], schema },
+    { websocket: true, preHandler: [authenticateRealtimeSession], schema },
     async (connection: WebSocket.WebSocket, request) => {
       const socket = connection;
       // @ts-ignore
