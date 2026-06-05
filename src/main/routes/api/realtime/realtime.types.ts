@@ -10,7 +10,7 @@ export type RealtimeUserItem = {
   content?: RealtimeContentPart[];
 };
 
-export type RealtimeConversationContext = 'medieval';
+export type RealtimeConversationContext = 'medieval' | 'classic';
 
 export type RealtimeEvent = {
   type: string;

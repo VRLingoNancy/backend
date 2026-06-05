@@ -106,10 +106,10 @@ To start a conversation, connect via WebSocket to:
           'Target language code (must be one of: fr, en, it, de). Defaults to "en".'
         ),
       context: z
-        .enum(['medieval'])
+        .enum(['medieval', 'classic'])
         .optional()
         .describe(
-          'Optional style context. When set to "medieval", the assistant uses medieval phrasing.'
+          'Optional style context. "medieval" uses medieval phrasing; "classic" (or omitted) uses the modern style.'
         ),
       ticket: z
         .string()
