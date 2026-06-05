@@ -5,6 +5,7 @@ import {
 } from '../../dtos/LoginUserRequestDto';
 import { AuthService } from '../../services/AuthService';
 import { AuthServiceError } from '../../errors/AuthServiceError';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 const loginRoute: FastifyPluginAsync = async (fastify) => {
@@ -42,9 +43,12 @@ const loginRoute: FastifyPluginAsync = async (fastify) => {
           { expiresIn: '15m' }
         );
 
+        // jti unique: garantit que deux refresh tokens émis dans la même
+        // seconde (même iat) restent distincts -> évite la collision P2002
+        // sur la contrainte unique authToken.refreshToken.
         const refreshToken = fastify.jwt.sign(
           { sub: user.id, type: 'refresh' },
-          { expiresIn: '7d' }
+          { expiresIn: '7d', jti: randomUUID() }
         );
 
         await fastify.prisma.authToken.create({
