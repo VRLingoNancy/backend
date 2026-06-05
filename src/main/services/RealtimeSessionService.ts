@@ -74,7 +74,8 @@ export class RealtimeSessionService {
     const openAIWs = new WebSocket(url, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'OpenAI-Beta': 'realtime=v1',
+        // GA Realtime API: ne PAS envoyer 'OpenAI-Beta: realtime=v1'
+        // (sinon OpenAI ferme avec beta_api_shape_disabled).
       },
     });
 
@@ -175,10 +176,9 @@ export class RealtimeSessionService {
         type: 'response.create',
         response: {
           conversation: 'none',
-          modalities: ['text', 'audio'],
+          output_modalities: ['audio'],
           instructions: buildBootstrapPromptText(),
           max_output_tokens: 512,
-          temperature: 0.6,
         },
       };
       openAIWs.send(JSON.stringify(bootstrapResponse));
@@ -345,16 +345,21 @@ export class RealtimeSessionService {
       const sessionConfig = {
         type: 'session.update',
         session: {
-          modalities: ['text', 'audio'],
+          type: 'realtime',
           instructions: buildSessionInstructions(),
-          voice: 'alloy',
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
-          turn_detection: {
-            type: 'server_vad',
-          },
-          input_audio_transcription: {
-            model: 'gpt-4o-mini-transcribe',
+          // GA: une seule modalité de sortie autorisée (['audio'] ou ['text']).
+          // 'audio' fournit aussi le transcript via response.output_audio_transcript.*
+          output_modalities: ['audio'],
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              turn_detection: { type: 'server_vad' },
+              transcription: { model: 'gpt-4o-mini-transcribe' },
+            },
+            output: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              voice: 'alloy',
+            },
           },
         },
       };
@@ -413,6 +418,9 @@ export class RealtimeSessionService {
     clearBootstrapTimers: () => void
   ) {
     if (
+      event.type === 'response.output_audio.delta' ||
+      event.type === 'response.output_audio_transcript.delta' ||
+      // Anciens noms beta, conservés par sécurité
       event.type === 'response.audio.delta' ||
       event.type === 'response.audio_transcript.delta'
     ) {
