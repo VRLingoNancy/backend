@@ -9,7 +9,7 @@ export const REALTIME_LIMITS = {
   MAX_TURNS_PER_SESSION: 20,
 
   // Modèle OpenAI à utiliser (vérifier le prix avant de changer !)
-  MODEL: 'gpt-4o-mini-realtime-preview',
+  MODEL: 'gpt-realtime-mini',
 
   // Limite de taille pour un message texte reçu (si on utilise du texte en entrée)
   MAX_TEXT_INPUT_LENGTH: 1000,

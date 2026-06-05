@@ -7,6 +7,7 @@ import { OpenAIService } from './OpenAIService';
 const PRICING_RATES: Record<string, { prompt: number; completion: number }> = {
   'gpt-4o-realtime-preview': { prompt: 0.1, completion: 0.2 }, // ~$100/1M in, $200/1M out
   'gpt-4o-mini-realtime-preview': { prompt: 0.01, completion: 0.02 }, // ~$10/1M in, $20/1M out
+  'gpt-realtime-mini': { prompt: 0.01, completion: 0.02 }, // ~$10/1M in, $20/1M out
   'gpt-4o': { prompt: 0.005, completion: 0.015 },
   'gpt-4o-mini': { prompt: 0.00015, completion: 0.0006 },
   default: { prompt: 0.01, completion: 0.03 }, // Fallback
